@@ -2,52 +2,111 @@
 
 ## First-Time Deployment
 
-The recommended way to deploy Keyflare is via `kfl init`, which automates everything. Here's what happens under the hood:
+### Via `kfl init` (Recommended)
 
-### Step-by-step (Manual)
-
-```bash
-# 1. Authenticate with Cloudflare
-wrangler login
-# or: export CLOUDFLARE_API_TOKEN=<your-token>
-
-# 2. Create the D1 database
-wrangler d1 create keyflare-db
-# Note the database_id from the output
-
-# 3. Update wrangler.toml with the database ID
-# In packages/server/wrangler.toml:
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "keyflare-db"
-# database_id = "<your-database-id>"
-
-# 4. Run migrations
-wrangler d1 execute keyflare-db --file=./migrations/0001_init.sql
-
-# 5. Generate master key
-MASTER_KEY=$(openssl rand -base64 32)
-echo "⚠️  SAVE THIS KEY: $MASTER_KEY"
-
-# 6. Push master key as Worker secret
-echo "$MASTER_KEY" | wrangler secret put MASTER_KEY
-
-# 7. Deploy the Worker
-cd packages/server
-wrangler deploy
-
-# 8. Bootstrap — create first API key
-curl -X POST https://keyflare.<account>.workers.dev/bootstrap
-# Save the returned key!
-```
-
-### Via `kfl init` (Automated)
+`kfl init` automates the entire setup. It supports two authentication methods:
 
 ```bash
 kfl init
 ```
 
-Does all of the above interactively. See [CLI Reference → init](./04-cli-reference.md#kfl-init).
+You will be prompted to choose:
+
+```
+? How would you like to authenticate with Cloudflare?
+❯ Browser (OAuth) — opens cloudflare.com in your browser
+  API Token — paste a Cloudflare API token
+```
+
+**OAuth flow** — no token management required:
+- Opens `cloudflare.com` in your browser via `wrangler login`
+- Wrangler caches the OAuth session locally
+- Subsequent `kfl init` runs reuse the session automatically
+
+**API token flow**:
+- Generate a token at https://dash.cloudflare.com/profile/api-tokens
+  - Required permissions: `Workers Scripts:Edit`, `D1:Edit`, `Workers Routes:Edit`
+- Paste it when prompted
+- Or set `CLOUDFLARE_API_TOKEN=<token>` in the environment to skip the prompt entirely (CI-friendly)
+
+**What `kfl init` does:**
+
+1. Verifies Cloudflare credentials (`wrangler whoami`)
+2. Creates D1 database `keyflare-db` (or finds it if it already exists)
+3. Patches `packages/server/wrangler.toml` with the real `database_id`
+4. Generates a 256-bit `MASTER_KEY` — **displayed once, save it now**
+5. Deploys the Worker via `wrangler deploy`
+6. Pushes `MASTER_KEY` as a Worker secret via `wrangler secret put`
+7. Applies Drizzle migrations via `wrangler d1 migrations apply --remote`
+8. Calls `POST /bootstrap` to create the first root user key
+9. Saves the API URL and root key to `~/.config/keyflare/`
+
+```
+$ kfl init
+
+🔥 Keyflare — Initial Setup
+
+? How would you like to authenticate with Cloudflare?
+❯ Browser (OAuth)
+
+✓ Authenticated as: my-account
+✓ Created D1 database: keyflare-db (id: abc-123-...)
+✓ Updated wrangler.toml with D1 database binding
+
+⚠ MASTER KEY — Save this somewhere safe. It cannot be recovered!
+
+  K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols=
+
+? I have saved the master key  Yes
+
+✓ Worker deployed: https://keyflare.my-account.workers.dev
+✓ Master key stored as Worker secret
+✓ Database schema initialized
+✓ Root API key created
+
+✓ Setup complete!
+
+Your root API key (already saved to ~/.config/keyflare/):
+
+  kfl_user_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+```
+
+---
+
+### Manual Deployment (Step-by-step)
+
+If you prefer full control:
+
+```bash
+# 1. Authenticate
+wrangler login
+# or: export CLOUDFLARE_API_TOKEN=<token>
+
+# 2. Create D1 database
+cd packages/server
+npx wrangler d1 create keyflare-db
+# Note the database_id in the output
+
+# 3. Update wrangler.toml
+# Set database_id = "<id-from-step-2>"
+
+# 4. Deploy the Worker
+npx wrangler deploy
+
+# 5. Generate + store MASTER_KEY
+MASTER_KEY=$(openssl rand -base64 32)
+echo "SAVE THIS: $MASTER_KEY"
+echo "$MASTER_KEY" | npx wrangler secret put MASTER_KEY
+
+# 6. Apply migrations
+npm run db:migrate:remote
+
+# 7. Bootstrap
+curl -X POST https://keyflare.<account>.workers.dev/bootstrap
+# Save the returned key!
+```
+
+---
 
 ## Deployment Architecture
 
@@ -79,20 +138,43 @@ Does all of the above interactively. See [CLI Reference → init](./04-cli-refer
 Total infrastructure: 1 Worker + 1 D1 database + 1 secret
 ```
 
-## Custom Domains
+---
 
-By default, the Worker is available at `https://keyflare.<account>.workers.dev`. To use a custom domain:
+## Updates
+
+To update Keyflare to a new version:
+
+```bash
+# Pull latest source
+git pull
+npm install
+
+# If there are new migrations:
+cd packages/server
+npm run db:migrate:remote
+
+# Redeploy
+npx wrangler deploy
+```
+
+The MASTER_KEY and all data persist across redeployments.
+
+---
+
+## Custom Domains
 
 ```bash
 # Via Cloudflare dashboard:
 # Workers & Pages → keyflare → Settings → Triggers → Custom Domains
 # Add: secrets.yourdomain.com
 
-# Or via wrangler.toml:
+# Or via wrangler.toml (then redeploy):
 # [routes]
 # pattern = "secrets.yourdomain.com/*"
 # zone_name = "yourdomain.com"
 ```
+
+---
 
 ## Monitoring
 
@@ -100,97 +182,76 @@ By default, the Worker is available at `https://keyflare.<account>.workers.dev`.
 
 ```bash
 # Real-time log tailing
-wrangler tail
+cd packages/server && npx wrangler tail
 
-# Filter by status code
-wrangler tail --status error
+# Filter errors only
+npx wrangler tail --status error
 ```
-
-### D1 Metrics
-
-Available in the Cloudflare dashboard:
-- Query count
-- Rows read/written
-- Database size
-- Error rate
 
 ### Health Check
 
 ```bash
-# Simple health check endpoint
 curl https://keyflare.<account>.workers.dev/health
-# → { "ok": true, "version": "0.1.0" }
+# → { "ok": true, "data": { "ok": true, "version": "0.1.0" } }
 ```
+
+### D1 Metrics
+
+Available in the Cloudflare dashboard under **Workers & Pages → D1**:
+- Query count, rows read/written, database size, error rate
+
+---
 
 ## Backup & Recovery
 
 ### D1 Backup
 
-Cloudflare automatically creates D1 backups. You can also export manually:
+Cloudflare automatically backs up D1. You can also export manually:
 
 ```bash
-# Export all tables (data is encrypted, but structure is preserved)
-wrangler d1 export keyflare-db --output backup.sql
+cd packages/server
+npx wrangler d1 export keyflare-db --output backup.sql
 ```
 
 ### Master Key Backup
 
-**The master key is the most critical piece.** Without it, all data is unrecoverable.
+**The MASTER_KEY is the single most critical piece of infrastructure.** Without it, all encrypted data is permanently unrecoverable — there is no backdoor.
 
-Recommended backup locations:
+Recommended storage:
 1. Password manager (1Password, Bitwarden)
-2. Printed copy in a physical safe
-3. Hardware security module (HSM) for enterprise setups
+2. Printed and stored in a physical safe
+3. HSM for enterprise setups
 
-**Never store the master key:**
-- In the git repository
-- In plain text on disk
-- In the D1 database
-- In environment variables in CI (use Keyflare itself or another secrets manager for the master key)
+**Never store the master key in:**
+- The git repository
+- Plain text files on disk
+- CI environment variables (use a dedicated secrets manager)
+- The D1 database itself
 
-## Disaster Recovery
+### Disaster Recovery
 
 | Scenario | Recovery |
 |----------|----------|
-| Worker deleted | Redeploy from source. Push master key again. D1 data is intact. |
+| Worker deleted | Redeploy via `wrangler deploy`. Push MASTER_KEY again. D1 data is intact. |
 | D1 data corrupted | Restore from Cloudflare automatic backups. |
-| D1 deleted | Restore from backup SQL + push master key. |
-| Master key lost | **Unrecoverable.** All encrypted data is permanently lost. Create new instance. |
-| Master key compromised | Revoke all API keys, create a new Keyflare instance with a new master key, re-upload all secrets. |
-| API key compromised | Revoke the key immediately (`kfl keys revoke <prefix>`). |
+| D1 deleted | Restore from exported `backup.sql` + push MASTER_KEY. |
+| MASTER_KEY lost | **Unrecoverable.** Create a new Keyflare instance, re-upload all secrets. |
+| MASTER_KEY compromised | Revoke all API keys. Create new instance with new key. Re-upload secrets. |
+| API key compromised | `kfl keys revoke <prefix>` — takes effect immediately. |
+
+---
 
 ## Scaling Considerations
 
-| Resource | Limit (free tier) | Limit (paid) | Notes |
-|----------|------------------|-------------|-------|
+| Resource | Free tier limit | Paid limit | Notes |
+|----------|----------------|------------|-------|
 | Worker requests | 100K/day | Unlimited | Per-request billing on paid |
 | D1 storage | 5 GB | 10 GB+ | Per-database |
 | D1 rows read | 5M/day | 50B/month | |
 | D1 rows written | 100K/day | 50M/month | |
-| Worker CPU time | 10ms | 30s | Crypto operations are fast |
+| Worker CPU time | 10ms | 30s | Crypto ops are fast (< 1ms) |
 
-For most teams, the free tier is more than sufficient.
-
-## Updates
-
-To update Keyflare to a new version:
-
-```bash
-# Pull latest
-git pull
-
-# Install dependencies
-npm install
-
-# Run any new migrations
-wrangler d1 execute keyflare-db --file=./migrations/XXXX_new_migration.sql
-
-# Deploy
-cd packages/server
-wrangler deploy
-```
-
-The master key and data persist across deployments.
+For most teams the free tier is more than sufficient.
 
 ---
 

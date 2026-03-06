@@ -4,8 +4,9 @@
 
 - Node.js >= 20
 - npm >= 10
-- Cloudflare account (for deployment)
-- Wrangler CLI (`npm i -g wrangler`)
+- Wrangler CLI — installed locally as a dev dependency (no global install needed)
+
+A Cloudflare account is **only required for remote deployment**. Local development runs entirely offline via Miniflare.
 
 ## Getting Started
 
@@ -14,59 +15,56 @@
 git clone https://github.com/matthias-hausberger/keyflare.git
 cd keyflare
 
-# Install all dependencies
+# Install all dependencies (all workspaces)
 npm install
+```
 
-# Set up local dev environment
+## Local Development (no Cloudflare account)
+
+The fastest way to get a local Keyflare instance running is `kfl dev`:
+
+```bash
+# One-time setup: generates a local MASTER_KEY, applies migrations,
+# bootstraps the DB, and saves credentials pointing at localhost:8787
+npx tsx packages/cli/src/index.ts dev init
+
+# Start the local server (separate terminal)
+npx tsx packages/cli/src/index.ts dev server
+# → Keyflare listening at http://localhost:8787
+
+# Point all kfl commands at the local server
+export KEYFLARE_LOCAL=true
+export KEYFLARE_API_KEY=kfl_user_<key-from-dev-init>
+```
+
+### What `kfl dev init` does
+
+1. Generates a cryptographically random `MASTER_KEY` and writes it to `packages/server/.dev.vars`
+2. Applies all Drizzle migrations to the local Miniflare D1 SQLite database
+3. Starts `wrangler dev` briefly in the background
+4. Calls `POST /bootstrap` to create the first root user key
+5. Saves `http://localhost:8787` and the root key to `~/.config/keyflare/`
+
+### Manual local bootstrap (alternative)
+
+```bash
+# Copy example dev vars
 cp .dev.vars.example packages/server/.dev.vars
-```
 
-## Local Development
-
-### Server (Worker)
-
-The server runs locally using `wrangler dev`, which provides a local D1 instance.
-
-```bash
-# Start the local dev server
+# Apply migrations to local D1
 cd packages/server
+npm run db:migrate:local
+
+# Start the server
 npm run dev
-# → Running on http://localhost:8787
+# → http://localhost:8787
+
+# Bootstrap
+curl -s -X POST http://localhost:8787/bootstrap | python3 -m json.tool
+# { "ok": true, "data": { "key": "kfl_user_..." } }
 ```
 
-**`.dev.vars` for local development:**
-```env
-MASTER_KEY=keyflare-local-dev-master-key-not-for-production
-```
-
-This hardcoded key is fine for local development — the local D1 is ephemeral.
-
-### CLI
-
-```bash
-# Run CLI commands during development
-cd packages/cli
-npm run dev -- projects list
-
-# Or from repo root
-npx tsx packages/cli/src/index.ts projects list
-```
-
-Set the CLI to point at your local server:
-```bash
-export KEYFLARE_API_URL=http://localhost:8787
-export KEYFLARE_API_KEY=kfl_user_<your-local-bootstrap-key>
-```
-
-### Local Bootstrap
-
-After starting the local server for the first time:
-
-```bash
-# Bootstrap (create first user key against local server)
-curl -X POST http://localhost:8787/bootstrap
-# Returns: { "ok": true, "data": { "key": "kfl_user_..." } }
-```
+The local `.dev.vars` key is intentionally non-secret — the local D1 database is ephemeral and contains no real data.
 
 ## Project Structure
 
@@ -75,80 +73,96 @@ keyflare/
 ├── packages/
 │   ├── server/              # Cloudflare Worker
 │   │   ├── src/
-│   │   │   ├── index.ts     # Worker entry (fetch handler)
-│   │   │   ├── routes/      # Route handlers
-│   │   │   │   ├── bootstrap.ts
-│   │   │   │   ├── keys.ts
-│   │   │   │   ├── projects.ts
-│   │   │   │   ├── configs.ts
-│   │   │   │   └── secrets.ts
-│   │   │   ├── middleware/
-│   │   │   │   ├── auth.ts       # API key verification
-│   │   │   │   └── validate.ts   # Request validation
-│   │   │   ├── crypto/
-│   │   │   │   ├── encrypt.ts    # AES-256-GCM encrypt/decrypt
-│   │   │   │   ├── hash.ts       # SHA-256, HMAC-SHA256
-│   │   │   │   └── keys.ts       # HKDF key derivation
+│   │   │   ├── index.ts     # Worker entry point & regex router
+│   │   │   ├── routes/      # Route handlers (bootstrap, keys, projects, configs, secrets)
+│   │   │   ├── middleware/  # auth.ts — API key verification & scope checks
+│   │   │   ├── crypto/      # encrypt.ts, hash.ts, keys.ts (AES-GCM, HMAC, HKDF)
 │   │   │   ├── db/
-│   │   │   │   ├── schema.sql    # Full schema
-│   │   │   │   └── queries.ts    # D1 query helpers
-│   │   │   └── types.ts          # Env bindings, internal types
-│   │   ├── migrations/
-│   │   │   └── 0001_init.sql
+│   │   │   │   ├── schema.ts      # Drizzle schema — source of truth for the DB
+│   │   │   │   └── queries.ts     # Drizzle query helpers
+│   │   │   ├── types.ts     # Env bindings, AuthContext, DerivedKeys
+│   │   │   └── utils.ts     # jsonOk / jsonError helpers
+│   │   ├── migrations/      # SQL files generated by drizzle-kit (never edit by hand)
+│   │   ├── test/
+│   │   │   ├── api.test.ts        # Integration tests (31 tests, full HTTP round-trips)
+│   │   │   └── global-setup.ts    # Temp dir lifecycle for test isolation
+│   │   ├── drizzle.config.ts
+│   │   ├── vitest.config.ts
 │   │   ├── wrangler.toml
-│   │   └── vitest.config.ts
+│   │   └── .dev.vars        # gitignored — local MASTER_KEY
 │   │
-│   ├── cli/                 # CLI (kfl)
-│   │   ├── src/
-│   │   │   ├── index.ts     # Commander setup
-│   │   │   ├── commands/
-│   │   │   │   ├── init.ts       # kfl init
-│   │   │   │   ├── projects.ts   # kfl projects *
-│   │   │   │   ├── configs.ts    # kfl configs *
-│   │   │   │   ├── secrets.ts    # kfl secrets *
-│   │   │   │   ├── upload.ts     # kfl upload
-│   │   │   │   ├── download.ts   # kfl download
-│   │   │   │   ├── run.ts        # kfl run
-│   │   │   │   ├── keys.ts       # kfl keys *
-│   │   │   │   └── dev.ts        # kfl dev *
-│   │   │   ├── api/
-│   │   │   │   └── client.ts     # HTTP client wrapper
-│   │   │   ├── output/
-│   │   │   │   ├── env.ts        # .env formatter
-│   │   │   │   ├── json.ts       # JSON formatter
-│   │   │   │   └── yaml.ts       # YAML formatter
-│   │   │   └── config.ts         # Read/write ~/.config/keyflare/
-│   │   └── tsup.config.ts
+│   ├── cli/                 # CLI tool (kfl)
+│   │   └── src/
+│   │       ├── index.ts           # Commander program, command registration
+│   │       ├── commands/
+│   │       │   ├── init.ts        # kfl init — remote deploy (OAuth or API token)
+│   │       │   └── dev.ts         # kfl dev init / kfl dev server
+│   │       ├── api/client.ts      # fetch wrapper over the Keyflare HTTP API
+│   │       ├── output/log.ts      # chalk logging helpers
+│   │       └── config.ts          # Read/write ~/.config/keyflare/
 │   │
-│   └── shared/              # Shared code
+│   └── shared/              # Shared types & utilities
 │       └── src/
-│           ├── types.ts     # API request/response types
-│           ├── constants.ts # Key prefixes, limits
-│           └── parse-env.ts # .env file parser
+│           ├── types.ts           # API request/response contracts
+│           ├── constants.ts       # Key prefixes, HKDF info strings, version
+│           └── index.ts
 │
 ├── docs/
 ├── .dev.vars.example
-├── package.json             # npm workspaces root
-└── tsconfig.base.json
+└── package.json
 ```
+
+## Database Migrations (Drizzle)
+
+The schema is defined in `packages/server/src/db/schema.ts`. **Never edit migration SQL files by hand** — always go through drizzle-kit.
+
+```bash
+cd packages/server
+
+# 1. Edit src/db/schema.ts
+
+# 2. Generate the new migration SQL
+npm run db:generate
+# Creates migrations/XXXX_<name>.sql
+
+# 3a. Apply locally
+npm run db:migrate:local
+
+# 3b. Apply to production
+npm run db:migrate:remote
+```
+
+The generated migration files are committed to the repo and applied automatically in tests via `applyD1Migrations` from `cloudflare:test`.
 
 ## Testing
 
-```bash
-# Run all tests
-npm test
+Tests run entirely inside a Miniflare Worker runtime — no network calls, no Cloudflare account needed.
 
-# Run server tests
+```bash
+# Run server tests (31 integration tests)
 npm test --workspace=packages/server
 
-# Run CLI tests
-npm test --workspace=packages/cli
-
-# Run with coverage
-npm test -- --coverage
+# Run via gob (recommended — streams output)
+cd packages/server && gob run npx vitest run
 ```
 
-Server tests use Miniflare (via `vitest` + `@cloudflare/vitest-pool-workers`) for local Worker + D1 testing.
+### Test isolation
+
+Each test run:
+1. Creates a unique temp directory at `os.tmpdir()/keyflare-test-<pid>` (via `test/global-setup.ts`)
+2. Directs Miniflare's D1 storage there via `d1Persist` in `vitest.config.ts`
+3. Deletes the temp directory in a teardown hook after all tests finish
+
+This means:
+- Tests never pollute the real local dev `.wrangler/state/`
+- Multiple test runs in parallel don't collide
+- Zero artefacts left after the suite
+
+### Migrations in tests
+
+`vitest.config.ts` reads the Drizzle migration files at startup via `readD1Migrations()` and passes them to Miniflare as a binding (`TEST_MIGRATIONS`). The `beforeAll` hook in `api.test.ts` calls `applyD1Migrations(env.DB, env.TEST_MIGRATIONS)` to apply them before any test runs.
+
+New migrations are therefore picked up automatically — no test code changes needed when the schema changes.
 
 ## Building
 
@@ -158,30 +172,35 @@ npm run build
 
 # Build individual packages
 npm run build --workspace=packages/shared
-npm run build --workspace=packages/server
-npm run build --workspace=packages/cli
+npm run build --workspace=packages/server   # type-check only (wrangler bundles at deploy)
+npm run build --workspace=packages/cli       # tsup → dist/index.js
 ```
 
-## Deployment
+## Type Checking
 
 ```bash
-# Deploy to Cloudflare (from packages/server)
-cd packages/server
-wrangler deploy
-
-# Or use kfl init for first-time setup
-kfl init
+npm run typecheck --workspaces
+# or individually:
+npm run typecheck --workspace=packages/server
+npm run typecheck --workspace=packages/cli
 ```
 
 ## Debugging
 
 ```bash
-# View Worker logs in real-time
-wrangler tail
+# View Worker logs in real-time (production)
+cd packages/server && npx wrangler tail
 
-# View D1 data (be careful — data is encrypted)
-wrangler d1 execute keyflare-db --command "SELECT id, key_prefix, type FROM api_keys"
+# Inspect the local D1 (dev server must be running)
+npx wrangler d1 execute keyflare-db --local \
+  --command "SELECT id, key_prefix, type, revoked FROM api_keys"
+
+# Inspect production D1
+npx wrangler d1 execute keyflare-db --remote \
+  --command "SELECT id, key_prefix, type FROM api_keys"
 ```
+
+Note: all `label`, `scopes`, `name_encrypted`, `key_encrypted`, and `value_encrypted` columns contain AES-256-GCM ciphertext — they are unreadable without the MASTER_KEY.
 
 ---
 

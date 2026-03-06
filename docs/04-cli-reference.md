@@ -22,34 +22,59 @@
 Bootstrap a new Keyflare deployment on your Cloudflare account.
 
 ```bash
-kfl init
+kfl init [--force]
 ```
 
+**Authentication options** — prompted interactively on first run:
+
+| Method | How |
+|--------|-----|
+| **Browser (OAuth)** | Opens `cloudflare.com` via `wrangler login`. Session is cached — no token to manage. |
+| **API Token** | Paste a token at the prompt, or pre-set `CLOUDFLARE_API_TOKEN` to skip the prompt (CI-friendly). |
+
+If `CLOUDFLARE_API_TOKEN` is already set in the environment, it is used silently without prompting.
+
 Interactive flow:
-1. Prompts for Cloudflare API token (or uses `CLOUDFLARE_API_TOKEN`)
-2. Creates D1 database (`keyflare-db`)
-3. Generates master encryption key (256-bit)
-4. Deploys Worker with D1 binding
-5. Pushes `MASTER_KEY` as Worker secret
-6. Runs database migrations
-7. Calls `/bootstrap` to create first user key
-8. Saves API URL and key to `~/.config/keyflare/`
+1. Prompts for Cloudflare auth method (OAuth browser or API token)
+2. Verifies credentials (`wrangler whoami`)
+3. Creates D1 database `keyflare-db` (or finds it if already exists)
+4. Patches `packages/server/wrangler.toml` with the real `database_id`
+5. Generates 256-bit `MASTER_KEY` — displayed once, requires confirmation it's been saved
+6. Deploys the Worker via `wrangler deploy`
+7. Pushes `MASTER_KEY` as a Worker secret
+8. Applies Drizzle migrations (`wrangler d1 migrations apply --remote`)
+9. Calls `POST /bootstrap` to create the first root user key
+10. Saves API URL and root key to `~/.config/keyflare/`
 
 ```
 $ kfl init
-✓ Cloudflare API token verified (account: my-account)
-✓ Created D1 database: keyflare-db (id: abc123...)
-✓ Generated master encryption key
-✓ Deployed Keyflare Worker: https://keyflare.my-account.workers.dev
-✓ Master key pushed to Worker secrets
-✓ Database schema initialized
-✓ Bootstrap complete
 
-Your root API key (save this — it will NOT be shown again):
+🔥 Keyflare — Initial Setup
+
+? How would you like to authenticate with Cloudflare?
+❯ Browser (OAuth) — opens cloudflare.com in your browser
+  API Token — paste a Cloudflare API token
+
+✓ Authenticated as: my-account
+✓ Created D1 database: keyflare-db (id: abc123...)
+✓ Updated wrangler.toml with D1 database binding
+
+⚠ MASTER KEY — Save this somewhere safe. It cannot be recovered!
+
+  K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols=
+
+? I have saved the master key  Yes
+
+✓ Worker deployed: https://keyflare.my-account.workers.dev
+✓ Master key stored as Worker secret
+✓ Database schema initialized
+✓ Root API key created
+
+✓ Setup complete!
+
+Your root API key (already saved to ~/.config/keyflare/):
 
   kfl_user_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
-
-Configuration saved to ~/.config/keyflare/
 ```
 
 ---
@@ -277,14 +302,79 @@ See [API Keys & Access Control](./03-api-keys-and-access.md) for detailed exampl
 
 ### `kfl dev`
 
-Helper commands for local development.
+Local development helpers. **No Cloudflare account required** — everything runs via Miniflare/wrangler locally.
+
+#### `kfl dev init`
+
+One-time local setup: generates a `MASTER_KEY`, applies D1 migrations, bootstraps the DB, and saves credentials pointing at `http://localhost:8787`.
 
 ```bash
-# Generate a local master key and write to .dev.vars
-kfl dev init
+kfl dev init [--force]
+```
 
-# Run the Keyflare server locally (wraps wrangler dev)
-kfl dev server
+`--force` regenerates the local `MASTER_KEY` (existing local data becomes unreadable).
+
+What it does:
+1. Generates a random `MASTER_KEY` and writes it to `packages/server/.dev.vars`
+2. Applies all Drizzle migrations to the local Miniflare D1 database
+3. Briefly starts `wrangler dev` in the background
+4. Calls `POST /bootstrap` → saves root key + `http://localhost:8787` to `~/.config/keyflare/`
+
+```
+$ kfl dev init
+
+🔥 Keyflare Local Setup
+
+✓ Local master key ready (packages/server/.dev.vars)
+✓ Local database schema up-to-date
+✓ Local server ready at http://localhost:8787
+✓ Root API key created
+
+✓ Local setup complete!
+
+Your root API key (saved to ~/.config/keyflare/):
+
+  kfl_user_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+
+Start the local server anytime with:
+
+  kfl dev server
+
+Or set these env vars to use the local instance:
+
+  KEYFLARE_LOCAL=true
+  KEYFLARE_API_KEY=kfl_user_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+```
+
+#### `kfl dev server`
+
+Start the local Keyflare server. Blocks until Ctrl-C.
+
+```bash
+kfl dev server [--port <port>]
+```
+
+Run `kfl dev init` first to set up the local database.
+
+```
+$ kfl dev server
+🔥 Keyflare Dev Server
+
+Starting wrangler dev on port 8787...
+Press Ctrl-C to stop.
+```
+
+#### Local mode
+
+Set `KEYFLARE_LOCAL=true` (or configure `~/.config/keyflare/config.toml` with `api_url = "http://localhost:8787"`) to make all `kfl` commands target the local server:
+
+```bash
+export KEYFLARE_LOCAL=true
+export KEYFLARE_API_KEY=kfl_user_<your-local-key>
+
+kfl projects create my-api
+kfl configs create development --project my-api
+kfl secrets set DB_URL=postgres://localhost --project my-api --config development
 ```
 
 ---
@@ -304,8 +394,10 @@ kfl dev server
 |----------|-------------|
 | `KEYFLARE_API_KEY` | API key (overrides credentials file) |
 | `KEYFLARE_API_URL` | API URL (overrides config file) |
+| `KEYFLARE_LOCAL` | Set to `true` to target `http://localhost:8787` (implies local mode) |
 | `KEYFLARE_PROJECT` | Default project (overrides config file) |
 | `KEYFLARE_CONFIG` | Default config/environment (overrides config file) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token used by `kfl init` (skips auth prompt) |
 
 ## Exit Codes
 
