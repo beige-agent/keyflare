@@ -79,6 +79,43 @@ Your root API key (already saved to ~/.config/keyflare/):
 
 ---
 
+### `kfl login`
+
+Log in to an existing Keyflare deployment. Use this when the service is already deployed and you need to configure your local CLI with the API URL and an API key.
+
+```bash
+kfl login
+```
+
+Interactive flow:
+1. Prompts for the Keyflare API URL (e.g., `https://keyflare.your-account.workers.dev`)
+2. Prompts for your API key (hidden input)
+3. Verifies credentials by calling the API
+4. Saves both to `~/.config/keyflare/`
+
+```
+$ kfl login
+
+🔑 Keyflare Login
+
+? Keyflare API URL: https://keyflare.my-account.workers.dev
+? API Key: ********
+✓ Credentials verified
+
+✓ Logged in!
+
+API URL: https://keyflare.my-account.workers.dev
+Credentials saved to: ~/.config/keyflare/
+```
+
+This is useful when:
+- Setting up a new machine
+- Switching between different Keyflare deployments
+- After a colleague shares an API key with you
+- Recovering access after deleting local config
+
+---
+
 ### `kfl projects`
 
 Manage projects.

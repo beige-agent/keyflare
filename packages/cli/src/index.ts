@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runInit } from "./commands/init.js";
+import { runLogin } from "./commands/login.js";
 import { runDevServer, runDevInit } from "./commands/dev.js";
 import {
   runProjectsList,
@@ -46,6 +47,17 @@ program
   .option("--force", "Re-run even if already initialised")
   .action(async (opts) => {
     await runInit(opts).catch(handleError);
+  });
+
+// ─── kfl login ───────────────────────────────────────────────
+program
+  .command("login")
+  .description(
+    "Log in to an existing Keyflare deployment. " +
+      "Prompts for the API URL and your API key."
+  )
+  .action(async () => {
+    await runLogin().catch(handleError);
   });
 
 // ─── kfl dev ─────────────────────────────────────────────────
