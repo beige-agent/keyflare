@@ -2,6 +2,15 @@
 
 ## Key Types
 
+| | User Key | System Key |
+|---|---|---|
+| **Prefix** | `kfl_user_*` | `kfl_sys_*` |
+| **Access** | Full admin (all projects, keys, settings) | Scoped to specific project:environment |
+| **Scoping** | None — access to everything | Required — one or more `project:env` pairs |
+| **Permission** | Implicit full access | Required — `read` or `readwrite` |
+| **Created by** | `kfl init` (bootstrap) or another user key | Any user key |
+| **Use for** | Developers, admins, backup keys | CI/CD, deployment scripts, runtime services |
+
 ### User Keys (`kfl_user_*`)
 
 - **Purpose:** Full management of the Keyflare instance.

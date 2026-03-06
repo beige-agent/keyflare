@@ -319,21 +319,75 @@ How it works:
 
 Manage API keys. Requires a user key.
 
+There are two types of API keys:
+
+**User Keys** (`kfl_user_*`) — Full admin access.
+- Can manage all projects, configs, secrets, and other API keys.
+- No scoping required — has access to everything.
+- Use for: developers, admins, backup keys.
+
+**System Keys** (`kfl_sys_*`) — Scoped access for CI/CD and automation.
+- Can only access specific project/environment combinations.
+- Must specify scopes and permissions.
+- Use for: CI/CD pipelines, deployment scripts, runtime services.
+
 ```bash
 # List all keys
 kfl keys list
 
-# Create a user key
-kfl keys create --type user --label <label>
+# Create a user key (full admin access)
+kfl keys create --type user --label "my-admin-key"
 
-# Create a system key with scopes
-kfl keys create --type system --label <label> --scope <project:env> [--scope ...] --permission <read|readwrite>
+# Create a system key for CI/CD (read-only, production only)
+kfl keys create --type system \
+  --label "github-actions-prod" \
+  --scope "my-api:production" \
+  --permission read
+
+# Create a system key with multiple scopes
+kfl keys create --type system \
+  --label "deployer" \
+  --scope "my-api:staging" \
+  --scope "frontend:staging" \
+  --permission readwrite
+
+# Create a system key with wildcard environment
+kfl keys create --type system \
+  --label "local-dev" \
+  --scope "my-api:*" \
+  --permission readwrite
 
 # Revoke a key
 kfl keys revoke <prefix>
 ```
 
-See [API Keys & Access Control](./03-api-keys-and-access.md) for detailed examples.
+#### `kfl keys create` Flags
+
+| Flag | Required For | Description |
+|------|--------------|-------------|
+| `--type <type>` | All | `user` or `system` |
+| `--label <label>` | All | Human-readable label for the key |
+| `--scope <project:env>` | System only | Scope for system keys. Repeatable. Use `*` for env wildcard. |
+| `--permission <perm>` | System only | `read` or `readwrite` |
+
+**User key example:**
+```bash
+kfl keys create --type user --label "backup-admin"
+# Output: kfl_user_abc123...
+```
+
+**System key examples:**
+```bash
+# Read-only access to production
+kfl keys create --type system --label "ci-prod" \
+  --scope "my-api:production" --permission read
+
+# Read-write access to all environments in a project
+kfl keys create --type system --label "dev-script" \
+  --scope "my-api:*" --permission readwrite
+```
+
+See [API Keys & Access Control](./03-api-keys-and-access.md) for the full authorization model.
 
 ---
 

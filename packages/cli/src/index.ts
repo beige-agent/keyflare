@@ -245,16 +245,30 @@ keys
 
 keys
   .command("create")
-  .description("Create a new API key")
+  .description(
+    "Create a new API key.\n\n" +
+      "USER KEYS (kfl_user_*) — Full admin access.\n" +
+      "  - Can manage all projects, configs, secrets, and other API keys.\n" +
+      "  - No scoping required — has access to everything.\n" +
+      "  - Required flags: --type user --label <label>\n\n" +
+      "SYSTEM KEYS (kfl_sys_*) — Scoped access for CI/CD and automation.\n" +
+      "  - Can only access specific project/environment combinations.\n" +
+      "  - Required flags: --type system --label <label> --scope <project:env> --permission <read|readwrite>\n" +
+      "  - Use --scope multiple times for multiple project:env pairs.\n" +
+      "  - Use * as environment wildcard (e.g., --scope my-api:*)"
+  )
   .requiredOption("--type <type>", "Key type: user or system")
   .requiredOption("--label <label>", "Human-readable label")
   .option(
     "--scope <scope>",
-    "Scope for system keys: project:environment (repeatable)",
+    "Scope for system keys: project:environment (repeatable). Required for system keys.",
     collect,
     []
   )
-  .option("--permission <perm>", "Permission for system keys: read or readwrite")
+  .option(
+    "--permission <perm>",
+    "Permission for system keys: read or readwrite. Required for system keys."
+  )
   .action(async (opts) => {
     await runKeysCreate(opts).catch(handleError);
   });

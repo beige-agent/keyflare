@@ -19,19 +19,25 @@ export async function runKeysList() {
   }
 
   const prefixW = Math.max(6, ...keys.map((k) => k.prefix.length));
-  const typeW = 6;
   const labelW = Math.max(5, ...keys.map((k) => k.label.length));
 
   console.log(
     bold(
-      `${"PREFIX".padEnd(prefixW)}  ${"TYPE".padEnd(typeW)}  ${"LABEL".padEnd(labelW)}  CREATED`
+      `${"PREFIX".padEnd(prefixW)}  ${"TYPE".padEnd(6)}  ${"LABEL".padEnd(labelW)}  ${"PERMISSION".padEnd(10)}  ${"SCOPES".padEnd(20)}  CREATED`
     )
   );
   for (const k of keys) {
     const created = new Date(k.created_at).toISOString().slice(0, 10);
     const revokedMark = k.revoked ? " [REVOKED]" : "";
+
+    // Format permission and scopes
+    const permission = k.type === "user" ? "full" : (k.permission ?? "read");
+    const scopes = k.scopes
+      ? k.scopes.map((s) => `${s.project}:${s.environment}`).join(", ")
+      : (k.type === "user" ? "*" : "-");
+
     console.log(
-      `${k.prefix.padEnd(prefixW)}  ${k.type.padEnd(typeW)}  ${k.label.padEnd(labelW)}  ${created}${revokedMark}`
+      `${k.prefix.padEnd(prefixW)}  ${k.type.padEnd(6)}  ${k.label.padEnd(labelW)}  ${permission.padEnd(10)}  ${scopes.padEnd(20)}  ${created}${revokedMark}`
     );
   }
 }
@@ -42,6 +48,24 @@ export async function runKeysCreate(opts: {
   scope?: string[];
   permission?: Permission;
 }) {
+  // Validate system key requirements
+  if (opts.type === "system") {
+    if (!opts.scope || opts.scope.length === 0) {
+      throw new Error(
+        "System keys require --scope <project:environment>.\n" +
+          "Example: --scope my-api:production\n" +
+          "Use * for environment wildcard: --scope my-api:*"
+      );
+    }
+    if (!opts.permission) {
+      throw new Error(
+        "System keys require --permission <read|readwrite>.\n" +
+          "  read      — can only fetch secrets\n" +
+          "  readwrite — can fetch and write secrets"
+      );
+    }
+  }
+
   const scopes: KeyScope[] | undefined = opts.scope?.map((s) => {
     const [project, environment] = s.split(":");
     if (!project || !environment) {
