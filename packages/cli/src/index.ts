@@ -273,4 +273,9 @@ function handleError(err: unknown) {
   process.exit(1);
 }
 
+// Show help (exit 0) when no arguments are provided
+if (process.argv.length <= 2) {
+  program.help();
+}
+
 program.parse();

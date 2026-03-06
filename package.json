@@ -12,7 +12,7 @@
     "lint": "npm run lint --workspaces",
     "test": "npm run test --workspaces",
     "typecheck": "npm run typecheck --workspaces",
-    "kfl": "npm run dev --workspace=packages/cli"
+    "kfl": "tsx packages/cli/src/index.ts"
   },
   "engines": {
     "node": ">=20.0.0"
