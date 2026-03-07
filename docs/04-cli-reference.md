@@ -218,6 +218,10 @@ kfl projects delete <name>
 $ kfl projects create my-api
 ✓ Project "my-api" created
 
+Next: add environments (e.g. dev and prod):
+  kfl configs create dev --project my-api
+  kfl configs create prod --project my-api
+
 $ kfl projects list
 NAME        ENVIRONMENTS  CREATED
 my-api      3             2024-01-15

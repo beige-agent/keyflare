@@ -37,6 +37,14 @@ export async function runProjectsList() {
 export async function runProjectsCreate(name: string) {
   const data = await api.post<CreateProjectResponse>("/projects", { name });
   success(`Project "${data.name}" created`);
+  console.log("");
+  console.log(
+    cyan("Next: add environments (e.g. dev and prod):") +
+      "\n  " +
+      dim(`kfl configs create dev --project ${data.name}`) +
+      "\n  " +
+      dim(`kfl configs create prod --project ${data.name}`),
+  );
 }
 
 export async function runProjectsDelete(
