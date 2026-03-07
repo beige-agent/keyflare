@@ -92,14 +92,14 @@ export async function updateKeyLastUsed(
 
 // ─── Projects ───
 
-export async function getProjectByHash(
+export async function getProjectByName(
   db: DrizzleD1Database,
-  nameHash: string
+  name: string
 ): Promise<ProjectRow | undefined> {
   const rows = await db
     .select()
     .from(projects)
-    .where(eq(projects.nameHash, nameHash))
+    .where(eq(projects.name, name))
     .limit(1);
   return rows[0];
 }
@@ -157,10 +157,10 @@ export async function deleteProject(
 
 // ─── Environments ───
 
-export async function getEnvironmentByHash(
+export async function getEnvironmentByName(
   db: DrizzleD1Database,
   projectId: string,
-  nameHash: string
+  name: string
 ): Promise<EnvironmentRow | undefined> {
   const rows = await db
     .select()
@@ -168,7 +168,7 @@ export async function getEnvironmentByHash(
     .where(
       and(
         eq(environments.projectId, projectId),
-        eq(environments.nameHash, nameHash)
+        eq(environments.name, name)
       )
     )
     .limit(1);

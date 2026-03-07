@@ -19,8 +19,7 @@ export const apiKeys = sqliteTable("api_keys", {
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
-  nameEncrypted: text("name_encrypted").notNull(),
-  nameHash: text("name_hash").notNull().unique(),
+  name: text("name").notNull().unique(),
   createdAt: text("created_at").notNull(),
 });
 
@@ -33,14 +32,13 @@ export const environments = sqliteTable(
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    nameEncrypted: text("name_encrypted").notNull(),
-    nameHash: text("name_hash").notNull(),
+    name: text("name").notNull(),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
-    uniqueIndex("environments_project_id_name_hash_unique").on(
+    uniqueIndex("environments_project_id_name_unique").on(
       table.projectId,
-      table.nameHash
+      table.name
     ),
   ]
 );

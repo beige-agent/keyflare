@@ -5,10 +5,8 @@ import type {
   DeleteProjectResponse,
 } from "@keyflare/shared";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { encrypt, decrypt } from "../crypto/encrypt.js";
-import { hmacSha256 } from "../crypto/hash.js";
 import {
-  getProjectByHash,
+  getProjectByName,
   listProjects,
   insertProject,
   insertEnvironment,
@@ -23,7 +21,7 @@ export async function handleCreateProject(
   request: Request,
   db: DrizzleD1Database,
   auth: AuthContext,
-  derivedKeys: DerivedKeys
+  _derivedKeys: DerivedKeys
 ): Promise<Response> {
   if (!isUserKey(auth)) {
     return jsonError("FORBIDDEN", "Only user keys can create projects", 403);
@@ -36,11 +34,9 @@ export async function handleCreateProject(
 
   const name = body.name.trim();
   const environmentless = body.environmentless === true;
-  const nameHash = await hmacSha256(derivedKeys.hmacKey, name);
-  const nameEncrypted = await encrypt(derivedKeys.encryptionKey, name);
 
   // Check for duplicate
-  const existing = await getProjectByHash(db, nameHash);
+  const existing = await getProjectByName(db, name);
   if (existing) {
     return jsonError("CONFLICT", `Project "${name}" already exists`, 409);
   }
@@ -50,24 +46,17 @@ export async function handleCreateProject(
 
   await insertProject(db, {
     id,
-    nameEncrypted,
-    nameHash,
+    name,
     createdAt: now,
   });
 
   if (!environmentless) {
     const defaultEnvNames = ["Dev", "Prod"];
     for (const envName of defaultEnvNames) {
-      const envNameHash = await hmacSha256(derivedKeys.hmacKey, envName);
-      const envNameEncrypted = await encrypt(
-        derivedKeys.encryptionKey,
-        envName
-      );
       await insertEnvironment(db, {
         id: crypto.randomUUID(),
         projectId: id,
-        nameEncrypted: envNameEncrypted,
-        nameHash: envNameHash,
+        name: envName,
         createdAt: now,
       });
     }
@@ -80,18 +69,13 @@ export async function handleListProjects(
   request: Request,
   db: DrizzleD1Database,
   auth: AuthContext,
-  derivedKeys: DerivedKeys
+  _derivedKeys: DerivedKeys
 ): Promise<Response> {
   const rows = await listProjects(db);
   const projects = [];
 
   for (const row of rows) {
-    let name: string;
-    try {
-      name = await decrypt(derivedKeys.encryptionKey, row.nameEncrypted);
-    } catch {
-      name = "(decryption failed)";
-    }
+    const name = row.name;
 
     // If system key, filter to scoped projects only
     if (auth.keyType === "system" && auth.scopes) {
@@ -114,15 +98,14 @@ export async function handleDeleteProject(
   request: Request,
   db: DrizzleD1Database,
   auth: AuthContext,
-  derivedKeys: DerivedKeys,
+  _derivedKeys: DerivedKeys,
   projectName: string
 ): Promise<Response> {
   if (!isUserKey(auth)) {
     return jsonError("FORBIDDEN", "Only user keys can delete projects", 403);
   }
 
-  const nameHash = await hmacSha256(derivedKeys.hmacKey, projectName);
-  const project = await getProjectByHash(db, nameHash);
+  const project = await getProjectByName(db, projectName);
   if (!project) {
     return jsonError("NOT_FOUND", `Project "${projectName}" not found`, 404);
   }

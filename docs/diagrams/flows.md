@@ -213,16 +213,14 @@ erDiagram
 
     PROJECTS {
         text id PK
-        text name_encrypted
-        text name_hash UK
+        text name UK
         text created_at
     }
 
     ENVIRONMENTS {
         text id PK
         text project_id FK
-        text name_encrypted
-        text name_hash
+        text name
         text created_at
     }
 
@@ -259,7 +257,7 @@ graph TB
     end
 
     subgraph "Layer 4: Encryption at Rest"
-        ENC[AES-256-GCM<br/>All data encrypted in D1]
+        ENC[AES-256-GCM<br/>Secrets and key metadata encrypted in D1]
         HMAC[HMAC-SHA256<br/>Keyed hashes for lookups]
     end
 
