@@ -54,12 +54,18 @@ importers:
 
   packages/server:
     dependencies:
+      '@hono/zod-validator':
+        specifier: ^0.7.6
+        version: 0.7.6(hono@4.12.5)(zod@3.22.3)
       '@keyflare/shared':
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@cloudflare/workers-types@4.20260305.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.2)
+      hono:
+        specifier: ^4.6.0
+        version: 4.12.5
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.12.19
@@ -938,6 +944,12 @@ packages:
   '@fastify/busboy@2.1.1':
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
+
+  '@hono/zod-validator@0.7.6':
+    resolution: {integrity: sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw==}
+    peerDependencies:
+      hono: '>=3.9.0'
+      zod: ^3.25.0 || ^4.0.0
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -1948,6 +1960,10 @@ packages:
 
   glob-to-regexp@0.4.1:
     resolution: {integrity: sha512-lkX1HJXwyMcprw/5YUZc2s7DrpAiHB21/V+E1rHUrVNokkvB6bqMzT0VfV6/86ZNabt1k14YOIaT7nDvOX3Iiw==}
+
+  hono@4.12.5:
+    resolution: {integrity: sha512-3qq+FUBtlTHhtYxbxheZgY8NIFnkkC/MR8u5TTsr7YZ3wixryQ3cCwn3iZbg8p8B88iDBBAYSfZDS75t8MN7Vg==}
+    engines: {node: '>=16.9.0'}
 
   iconv-lite@0.7.2:
     resolution: {integrity: sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw==}
@@ -3005,6 +3021,11 @@ snapshots:
 
   '@fastify/busboy@2.1.1': {}
 
+  '@hono/zod-validator@0.7.6(hono@4.12.5)(zod@3.22.3)':
+    dependencies:
+      hono: 4.12.5
+      zod: 3.22.3
+
   '@img/colour@1.1.0': {}
 
   '@img/sharp-darwin-arm64@0.33.5':
@@ -3824,6 +3845,8 @@ snapshots:
   github-from-package@0.0.0: {}
 
   glob-to-regexp@0.4.1: {}
+
+  hono@4.12.5: {}
 
   iconv-lite@0.7.2:
     dependencies:

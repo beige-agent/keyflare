@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@keyflare/shared": "workspace:*",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.6.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.19",
