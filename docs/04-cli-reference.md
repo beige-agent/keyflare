@@ -19,7 +19,7 @@
 
 ### `kfl init`
 
-Bootstrap a new Keyflare deployment on your Cloudflare account.
+Bootstrap a new Keyflare deployment on your Cloudflare account, or update an existing deployment.
 
 ```bash
 kfl init [--force]
@@ -34,7 +34,10 @@ kfl init [--force]
 
 If `CLOUDFLARE_API_TOKEN` is already set in the environment, it is used silently without prompting.
 
-Interactive flow:
+#### Fresh Install Flow
+
+When no Keyflare deployment exists:
+
 1. Prompts for Cloudflare auth method (OAuth browser or API token)
 2. Verifies credentials (`wrangler whoami`)
 3. Creates D1 database `keyflare-db` (or finds it if already exists)
@@ -45,6 +48,22 @@ Interactive flow:
 8. Applies Drizzle migrations (`wrangler d1 migrations apply --remote`)
 9. Calls `POST /bootstrap` to create the first root user key
 10. Saves API URL and root key to `~/.config/keyflare/`
+
+#### Update Flow
+
+When a Keyflare deployment already exists, `kfl init` detects it and prompts:
+
+```
+⚠ Found existing Keyflare worker deployment!
+
+  Worker: keyflare
+  D1 Database: abc-123-def-456...
+
+? Do you want to UPDATE the existing deployment? (y/N)
+```
+
+- **Yes** — Deploys the new worker version and runs any pending database migrations. Your MASTER_KEY and all data are preserved.
+- **No** — Aborts with instructions to either delete the existing worker (`wrangler delete keyflare`) or use a different Cloudflare account.
 
 ```
 $ kfl init

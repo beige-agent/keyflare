@@ -1,12 +1,27 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { input, select, confirm, password } from "@inquirer/prompts";
+import { select, confirm, password } from "@inquirer/prompts";
 import ora from "ora";
 import type { BootstrapResponse } from "@keyflare/shared";
 import { api, KeyflareApiError } from "../api/client.js";
-import { writeConfig, writeApiKey } from "../config.js";
+import { writeConfig, writeApiKey, readConfig } from "../config.js";
 import { log, success, warn, error, bold, dim } from "../output/log.js";
+
+// ─── Types ────────────────────────────────────────────────────
+
+interface WorkerVersionInfo {
+  id: string;
+  number: number;
+  metadata: {
+    bindings: {
+      d1_databases?: Array<{
+        name: string;
+        id: string;
+      }>;
+    };
+  };
+}
 
 // ─── Auth helpers ─────────────────────────────────────────────
 
@@ -47,7 +62,7 @@ async function resolveCloudflareAuth(): Promise<{
   });
 
   if (method === "oauth") {
-    // Trigger wrangler login OAuth flow
+    // Trigger wrangler-login OAuth flow
     log(
       dim(
         "\nOpening Cloudflare login in your browser. Press Enter here when done..."
@@ -89,19 +104,92 @@ function checkWranglerOAuthSession(): boolean {
 function wrangler(
   args: string[],
   authEnv: Record<string, string>,
-  cwd?: string
-): string {
+  cwd?: string,
+  options?: { ignoreError?: boolean }
+): { stdout: string; stderr: string; status: number | null } {
   const result = spawnSync("npx", ["wrangler", ...args], {
     stdio: ["inherit", "pipe", "pipe"],
     cwd,
     env: { ...process.env, ...authEnv },
   });
 
-  if (result.status !== 0) {
+  if (!options?.ignoreError && result.status !== 0) {
     const stderr = result.stderr?.toString() ?? "";
     throw new Error(`wrangler ${args[0]} failed:\n${stderr}`);
   }
-  return result.stdout?.toString() ?? "";
+
+  return {
+    stdout: result.stdout?.toString() ?? "",
+    stderr: result.stderr?.toString() ?? "",
+    status: result.status,
+  };
+}
+
+/**
+ * Check if a worker named "keyflare" already exists.
+ * Returns worker info if it exists, or null if it doesn't.
+ */
+function checkWorkerExists(
+  authEnv: Record<string, string>
+): { exists: boolean; databaseId?: string } {
+  const result = wrangler(
+    ["versions", "list", "--name", "keyflare", "--json"],
+    authEnv,
+    undefined,
+    { ignoreError: true }
+  );
+
+  if (result.status !== 0) {
+    // Check for "Worker does not exist" error
+    if (result.stderr.includes("does not exist") || result.stderr.includes("10007")) {
+      return { exists: false };
+    }
+    // Some other error
+    return { exists: false };
+  }
+
+  // Worker exists — try to get the D1 binding from the latest version
+  try {
+    const versions = JSON.parse(result.stdout) as WorkerVersionInfo[];
+    if (versions.length === 0) {
+      return { exists: true }; // Exists but no versions? Weird but handle it
+    }
+
+    // Get the latest version's bindings
+    const latestVersion = versions[0];
+    const d1Bindings = latestVersion.metadata?.bindings?.d1_databases;
+    if (d1Bindings && d1Bindings.length > 0) {
+      return { exists: true, databaseId: d1Bindings[0].id };
+    }
+  } catch {
+    // JSON parse failed, but worker exists
+  }
+
+  return { exists: true };
+}
+
+/**
+ * Find the keyflare-db D1 database ID from the list of databases.
+ */
+function findKeyflareDbId(authEnv: Record<string, string>): string | undefined {
+  const result = wrangler(["d1", "list", "--json"], authEnv, undefined, {
+    ignoreError: true,
+  });
+
+  if (result.status !== 0) {
+    return undefined;
+  }
+
+  try {
+    const dbs = JSON.parse(result.stdout) as Array<{
+      uuid: string;
+      name: string;
+    }>;
+    const keyflareDb = dbs.find((db) => db.name === "keyflare-db");
+    return keyflareDb?.uuid;
+  } catch {
+    return undefined;
+  }
 }
 
 // ─── kfl init (remote deploy) ─────────────────────────────────
@@ -114,11 +202,9 @@ export async function runInit(options: { force?: boolean }) {
   spinner.stop();
 
   let authEnv: Record<string, string>;
-  let authMethod: "oauth" | "token";
   try {
     const auth = await resolveCloudflareAuth();
     authEnv = auth.env;
-    authMethod = auth.method;
   } catch (err: any) {
     error(`Authentication failed: ${err.message}`);
     process.exit(1);
@@ -128,7 +214,7 @@ export async function runInit(options: { force?: boolean }) {
   const verifySpinner = ora("Verifying Cloudflare credentials...").start();
   try {
     const whoami = wrangler(["whoami"], authEnv);
-    const accountMatch = whoami.match(/Account Name:\s+(.+)/);
+    const accountMatch = whoami.stdout.match(/Account Name:\s+(.+)/);
     const accountName = accountMatch?.[1]?.trim() ?? "your account";
     verifySpinner.succeed(`Authenticated as: ${bold(accountName)}`);
   } catch {
@@ -136,21 +222,132 @@ export async function runInit(options: { force?: boolean }) {
     process.exit(1);
   }
 
-  // ── Step 2: Create D1 database
+  // ── Step 2: Check if worker already exists (update flow)
+  const checkSpinner = ora("Checking for existing Keyflare deployment...").start();
+  const workerStatus = checkWorkerExists(authEnv);
+
+  if (workerStatus.exists) {
+    checkSpinner.warn("Found existing Keyflare worker deployment!");
+
+    // Try to find the D1 database ID
+    const databaseId = workerStatus.databaseId ?? findKeyflareDbId(authEnv);
+
+    if (!databaseId) {
+      warn("Could not determine the D1 database ID for the existing deployment.");
+      error("Aborting. Please manually delete the worker or use a different Cloudflare account.");
+      process.exit(1);
+    }
+
+    log("");
+    warn("An existing Keyflare deployment was found:");
+    log(`  Worker: ${bold("keyflare")}`);
+    log(`  D1 Database: ${dim(databaseId)}`);
+    log("");
+
+    const shouldUpdate = await confirm({
+      message: "Do you want to UPDATE the existing deployment?",
+      default: false,
+    });
+
+    if (!shouldUpdate) {
+      log("");
+      error("kfl init aborted.");
+      log("");
+      log("To initialize a fresh Keyflare deployment, you need to either:");
+      log(`  1. Delete the existing worker: ${dim("wrangler delete keyflare")}`);
+      log(`  2. Use a different Cloudflare account`);
+      log("");
+      log("Note: Deleting the worker does NOT delete the D1 database.");
+      log(`      To also delete the database: ${dim("wrangler d1 delete keyflare-db")}`);
+      process.exit(1);
+    }
+
+    // ── UPDATE FLOW ────────────────────────────────────────────
+    log("");
+    log(bold("Updating existing Keyflare deployment...\n"));
+
+    // Patch wrangler.toml with the existing database ID
+    const serverDir = path.resolve(
+      new URL(".", import.meta.url).pathname,
+      "../../server"
+    );
+    const wranglerTomlPath = path.join(serverDir, "wrangler.toml");
+
+    const tomlContent = `name = "keyflare"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "keyflare-db"
+database_id = "${databaseId}"
+migrations_dir = "migrations"
+`;
+    fs.writeFileSync(wranglerTomlPath, tomlContent, "utf8");
+    success("Updated wrangler.toml with D1 database binding");
+
+    // Deploy new worker version
+    const deploySpinner = ora("Deploying updated Keyflare Worker...").start();
+    let workerUrl: string;
+    try {
+      const deployOutput = wrangler(["deploy"], authEnv, serverDir);
+      const urlMatch = deployOutput.stdout.match(/https:\/\/[\w.-]+\.workers\.dev/);
+      workerUrl = urlMatch?.[0] ?? "";
+      deploySpinner.succeed(
+        `Worker updated${workerUrl ? `: ${bold(workerUrl)}` : ""}`
+      );
+    } catch (err: any) {
+      deploySpinner.fail(`Worker deployment failed: ${err.message}`);
+      process.exit(1);
+    }
+
+    // Run migrations (may be no-op if schema is already up to date)
+    const migrateSpinner = ora("Running database migrations...").start();
+    try {
+      wrangler(
+        ["d1", "migrations", "apply", "keyflare-db", "--remote"],
+        authEnv,
+        serverDir
+      );
+      migrateSpinner.succeed("Database migrations applied");
+    } catch (err: any) {
+      // Check if it's just "already applied" error
+      if (err.message.includes("already been applied") || err.message.includes("no migrations")) {
+        migrateSpinner.succeed("Database schema already up to date");
+      } else {
+        migrateSpinner.fail(`Migrations failed: ${err.message}`);
+        process.exit(1);
+      }
+    }
+
+    // Update config with the API URL (in case it changed)
+    const apiUrl = workerUrl || `https://keyflare.workers.dev`;
+    const existingConfig = readConfig();
+    writeConfig({ apiUrl, project: existingConfig.project, environment: existingConfig.environment });
+
+    log("");
+    success(bold("✓ Keyflare updated successfully!"));
+    log("");
+    log(dim(`API URL: ${apiUrl}`));
+    log(dim(`Config:  ~/.config/keyflare/\n`));
+    return;
+  }
+
+  checkSpinner.succeed("No existing Keyflare deployment found");
+
+  // ── FRESH INSTALL FLOW ──────────────────────────────────────
+  log("");
+  log("Setting up a fresh Keyflare deployment...\n");
+
+  // ── Step 3: Create D1 database
   const dbSpinner = ora("Creating D1 database: keyflare-db...").start();
   let databaseId: string;
   try {
-    const output = wrangler(
-      ["d1", "create", "keyflare-db"],
-      authEnv
-    );
-    // Parse database_id from output:
-    // "database_id = "abc-123-...""
-    const match = output.match(/database_id\s*=\s*"?([a-f0-9-]{36})"?/);
+    const output = wrangler(["d1", "create", "keyflare-db"], authEnv);
+    const match = output.stdout.match(/database_id\s*=\s*"?([a-f0-9-]{36})"?/);
     if (!match) {
-      throw new Error(
-        `Could not parse database_id from output:\n${output}`
-      );
+      throw new Error(`Could not parse database_id from output:\n${output.stdout}`);
     }
     databaseId = match[1];
     dbSpinner.succeed(`Created D1 database: keyflare-db (id: ${dim(databaseId)})`);
@@ -159,10 +356,9 @@ export async function runInit(options: { force?: boolean }) {
     dbSpinner.text = "Database may already exist, looking it up...";
     try {
       const listOutput = wrangler(["d1", "list"], authEnv);
-      const lines = listOutput.split("\n");
+      const lines = listOutput.stdout.split("\n");
       const dbLine = lines.find((l) => l.includes("keyflare-db"));
       if (!dbLine) throw new Error("keyflare-db not found in list");
-      // Extract UUID from the line
       const uuidMatch = dbLine.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/);
       if (!uuidMatch) throw new Error("Could not parse database_id from list");
       databaseId = uuidMatch[1];
@@ -175,7 +371,7 @@ export async function runInit(options: { force?: boolean }) {
     }
   }
 
-  // ── Step 3: Patch wrangler.toml with real database_id
+  // ── Step 4: Patch wrangler.toml with real database_id
   const serverDir = path.resolve(
     new URL(".", import.meta.url).pathname,
     "../../server"
@@ -196,7 +392,7 @@ migrations_dir = "migrations"
   fs.writeFileSync(wranglerTomlPath, tomlContent, "utf8");
   success("Updated wrangler.toml with D1 database binding");
 
-  // ── Step 4: Generate master key
+  // ── Step 5: Generate master key
   const masterKey = generateMasterKey();
   warn(
     `\n⚠️  MASTER KEY — Save this somewhere safe. It cannot be recovered!\n`
@@ -204,13 +400,12 @@ migrations_dir = "migrations"
   log(bold(`  ${masterKey}\n`));
   await confirm({ message: "I have saved the master key", default: false });
 
-  // ── Step 5: Deploy Worker
+  // ── Step 6: Deploy Worker
   const deploySpinner = ora("Deploying Keyflare Worker...").start();
   let workerUrl: string;
   try {
     const deployOutput = wrangler(["deploy"], authEnv, serverDir);
-    // Parse Worker URL from deploy output: "https://keyflare.xxx.workers.dev"
-    const urlMatch = deployOutput.match(/https:\/\/[\w.-]+\.workers\.dev/);
+    const urlMatch = deployOutput.stdout.match(/https:\/\/[\w.-]+\.workers\.dev/);
     workerUrl = urlMatch?.[0] ?? "";
     deploySpinner.succeed(
       `Worker deployed${workerUrl ? `: ${bold(workerUrl)}` : ""}`
@@ -220,7 +415,7 @@ migrations_dir = "migrations"
     process.exit(1);
   }
 
-  // ── Step 6: Push MASTER_KEY as Worker secret
+  // ── Step 7: Push MASTER_KEY as Worker secret
   const secretSpinner = ora("Pushing master key to Worker secrets...").start();
   try {
     const result = spawnSync(
@@ -242,17 +437,11 @@ migrations_dir = "migrations"
     process.exit(1);
   }
 
-  // ── Step 7: Run D1 migrations
+  // ── Step 8: Run D1 migrations
   const migrateSpinner = ora("Running database migrations...").start();
   try {
     wrangler(
-      [
-        "d1",
-        "migrations",
-        "apply",
-        "keyflare-db",
-        "--remote",
-      ],
+      ["d1", "migrations", "apply", "keyflare-db", "--remote"],
       authEnv,
       serverDir
     );
@@ -262,7 +451,7 @@ migrations_dir = "migrations"
     process.exit(1);
   }
 
-  // ── Step 8: Bootstrap — create first user key
+  // ── Step 9: Bootstrap — create first user key
   const bootstrapSpinner = ora("Creating root API key...").start();
   const apiUrl = workerUrl || `https://keyflare.workers.dev`;
 
@@ -288,7 +477,7 @@ migrations_dir = "migrations"
     process.exit(1);
   }
 
-  // ── Step 9: Save config
+  // ── Step 10: Save config
   writeConfig({ apiUrl });
   writeApiKey(rootKey);
 

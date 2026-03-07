@@ -142,7 +142,33 @@ Total infrastructure: 1 Worker + 1 D1 database + 1 secret
 
 ## Updates
 
-To update Keyflare to a new version:
+When you update the Keyflare CLI package (`npm install -g @keyflare/cli` or similar), you can update your Cloudflare deployment by running `kfl init` again:
+
+```bash
+kfl init
+```
+
+Keyflare will detect the existing deployment and prompt you:
+
+```
+⚠ Found existing Keyflare worker deployment!
+
+  Worker: keyflare
+  D1 Database: abc-123-def-456...
+
+? Do you want to UPDATE the existing deployment? (y/N)
+```
+
+- **Yes** — Deploys the new worker version and runs any pending database migrations. Your MASTER_KEY and all data are preserved.
+- **No** — Aborts the init process. You'll need to either:
+  - Delete the existing worker: `wrangler delete keyflare`
+  - Use a different Cloudflare account
+
+> **Note:** Deleting the worker does NOT delete the D1 database. To also delete the database: `wrangler d1 delete keyflare-db`
+
+### Manual Update
+
+If you prefer full control:
 
 ```bash
 # Pull latest source
