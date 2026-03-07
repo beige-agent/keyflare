@@ -206,26 +206,39 @@ Manage projects.
 # List all projects
 kfl projects list
 
-# Create a new project
+# Create a new project (creates Dev and Prod environments by default)
 kfl projects create <name>
+
+# Create a project without default environments
+kfl projects create <name> --environmentless
 
 # Delete a project (and all its environments/secrets)
 kfl projects delete <name>
 ```
 
+**Options for `create`:**
+
+| Flag | Description |
+|------|-------------|
+| `--environmentless` | Create the project without default Dev/Prod environments. You can add configs later with `kfl configs create`. |
+
 **Examples:**
 ```bash
 $ kfl projects create my-api
-✓ Project "my-api" created
+✓ Project "my-api" created with environments: Dev, Prod
+
+$ kfl projects create bare-project --environmentless
+✓ Project "bare-project" created
 
 Next: add environments (e.g. dev and prod):
-  kfl configs create dev --project my-api
-  kfl configs create prod --project my-api
+  kfl configs create dev --project bare-project
+  kfl configs create prod --project bare-project
 
 $ kfl projects list
-NAME        ENVIRONMENTS  CREATED
-my-api      3             2024-01-15
-frontend    2             2024-01-16
+NAME           ENVIRONMENTS  CREATED
+my-api         2             2024-01-15
+bare-project   0             2024-01-15
+frontend       2             2024-01-16
 
 $ kfl projects delete frontend
 ⚠️  Delete project "frontend" and ALL its secrets? [y/N] y

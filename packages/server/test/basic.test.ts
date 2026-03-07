@@ -187,6 +187,51 @@ describe("Basic smoke tests", () => {
     expect(res.status).toBe(409);
   });
 
+  it("POST /projects creates project with default Dev and Prod configs", async () => {
+    const createRes = await SELF.fetch("http://localhost/projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ name: "default-envs-project" }),
+    });
+    expect(createRes.status).toBe(201);
+    const listRes = await SELF.fetch(
+      "http://localhost/projects/default-envs-project/configs",
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
+    expect(listRes.status).toBe(200);
+    const listJson = (await listRes.json()) as {
+      data: { configs: { name: string }[] };
+    };
+    expect(listJson.data.configs).toHaveLength(2);
+    const names = listJson.data.configs.map((c) => c.name).sort();
+    expect(names).toEqual(["Dev", "Prod"]);
+  });
+
+  it("POST /projects with environmentless creates project without configs", async () => {
+    const createRes = await SELF.fetch("http://localhost/projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        name: "envless-project",
+        environmentless: true,
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const listRes = await SELF.fetch(
+      "http://localhost/projects/envless-project/configs",
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
+    expect(listRes.status).toBe(200);
+    const listJson = (await listRes.json()) as { data: { configs: unknown[] } };
+    expect(listJson.data.configs).toHaveLength(0);
+  });
+
   it("configs and secrets: create config, set secrets, get, patch, get again", async () => {
     const project = "integration-test-app";
     const config = "production";

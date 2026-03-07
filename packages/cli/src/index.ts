@@ -114,8 +114,12 @@ projects
 projects
   .command("create <name>")
   .description("Create a new project")
-  .action(async (name: string) => {
-    await runProjectsCreate(name).catch(handleError);
+  .option(
+    "--environmentless",
+    "Create project without default Dev/Prod environments",
+  )
+  .action(async (name: string, opts) => {
+    await runProjectsCreate(name, opts).catch(handleError);
   });
 
 projects

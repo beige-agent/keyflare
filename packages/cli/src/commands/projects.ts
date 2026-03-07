@@ -34,17 +34,26 @@ export async function runProjectsList() {
   }
 }
 
-export async function runProjectsCreate(name: string) {
-  const data = await api.post<CreateProjectResponse>("/projects", { name });
-  success(`Project "${data.name}" created`);
-  console.log("");
-  console.log(
-    cyan("Next: add environments (e.g. dev and prod):") +
-      "\n  " +
-      dim(`kfl configs create dev --project ${data.name}`) +
-      "\n  " +
-      dim(`kfl configs create prod --project ${data.name}`),
-  );
+export async function runProjectsCreate(
+  name: string,
+  opts?: { environmentless?: boolean },
+) {
+  const body: { name: string; environmentless?: boolean } = { name };
+  if (opts?.environmentless) body.environmentless = true;
+  const data = await api.post<CreateProjectResponse>("/projects", body);
+  if (opts?.environmentless) {
+    success(`Project "${data.name}" created`);
+    console.log("");
+    console.log(
+      cyan("Next: add environments (e.g. dev and prod):") +
+        "\n  " +
+        dim(`kfl configs create dev --project ${data.name}`) +
+        "\n  " +
+        dim(`kfl configs create prod --project ${data.name}`),
+    );
+  } else {
+    success(`Project "${data.name}" created with environments: Dev, Prod`);
+  }
 }
 
 export async function runProjectsDelete(

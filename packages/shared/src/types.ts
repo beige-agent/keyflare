@@ -97,6 +97,8 @@ export interface UpdateKeyResponse {
 
 export interface CreateProjectRequest {
   name: string;
+  /** When true, do not create default Dev/Prod environments. Default: false. */
+  environmentless?: boolean;
 }
 
 export interface ProjectInfo {

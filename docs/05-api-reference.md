@@ -206,9 +206,15 @@ Create a new project.
 **Request:**
 ```json
 {
-  "name": "my-api"
+  "name": "my-api",
+  "environmentless": false
 }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Project name (trimmed, must be non-empty). |
+| `environmentless` | boolean | No | When `true`, do not create default environments. When omitted or `false`, two environments named **Dev** and **Prod** are created automatically. |
 
 **Response:**
 ```json

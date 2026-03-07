@@ -11,6 +11,7 @@ import {
   getProjectByHash,
   listProjects,
   insertProject,
+  insertEnvironment,
   deleteProject,
   countEnvironments,
 } from "../db/queries.js";
@@ -34,6 +35,7 @@ export async function handleCreateProject(
   }
 
   const name = body.name.trim();
+  const environmentless = body.environmentless === true;
   const nameHash = await hmacSha256(derivedKeys.hmacKey, name);
   const nameEncrypted = await encrypt(derivedKeys.encryptionKey, name);
 
@@ -52,6 +54,24 @@ export async function handleCreateProject(
     nameHash,
     createdAt: now,
   });
+
+  if (!environmentless) {
+    const defaultEnvNames = ["Dev", "Prod"];
+    for (const envName of defaultEnvNames) {
+      const envNameHash = await hmacSha256(derivedKeys.hmacKey, envName);
+      const envNameEncrypted = await encrypt(
+        derivedKeys.encryptionKey,
+        envName
+      );
+      await insertEnvironment(db, {
+        id: crypto.randomUUID(),
+        projectId: id,
+        nameEncrypted: envNameEncrypted,
+        nameHash: envNameHash,
+        createdAt: now,
+      });
+    }
+  }
 
   return jsonOk<CreateProjectResponse>({ id, name, created_at: now }, 201);
 }

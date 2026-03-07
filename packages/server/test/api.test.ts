@@ -185,6 +185,76 @@ describe("Keyflare API", () => {
       expect(listJson.data.projects).toHaveLength(0);
     });
 
+    it("creates a project with default Dev and Prod environments", async () => {
+      const res = await post(
+        "/projects",
+        { name: "with-defaults" },
+        userKey
+      );
+      expect(res.status).toBe(201);
+      const listRes = await get(
+        "/projects/with-defaults/configs",
+        userKey
+      );
+      expect(listRes.status).toBe(200);
+      const listJson = (await listRes.json()) as any;
+      expect(listJson.data.configs).toHaveLength(2);
+      const names = listJson.data.configs.map((c: any) => c.name).sort();
+      expect(names).toEqual(["Dev", "Prod"]);
+    });
+
+    it("creates a project with environmentless: true without default environments", async () => {
+      const res = await post(
+        "/projects",
+        { name: "no-defaults", environmentless: true },
+        userKey
+      );
+      expect(res.status).toBe(201);
+      const listRes = await get("/projects/no-defaults/configs", userKey);
+      expect(listRes.status).toBe(200);
+      const listJson = (await listRes.json()) as any;
+      expect(listJson.data.configs).toHaveLength(0);
+    });
+
+    it("list projects shows correct environment_count for default vs environmentless", async () => {
+      await post("/projects", { name: "with-defaults" }, userKey);
+      await post(
+        "/projects",
+        { name: "without-defaults", environmentless: true },
+        userKey
+      );
+      const res = await get("/projects", userKey);
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as any;
+      expect(json.data.projects).toHaveLength(2);
+      const withDefaults = json.data.projects.find(
+        (p: any) => p.name === "with-defaults"
+      );
+      const withoutDefaults = json.data.projects.find(
+        (p: any) => p.name === "without-defaults"
+      );
+      expect(withDefaults.environment_count).toBe(2);
+      expect(withoutDefaults.environment_count).toBe(0);
+    });
+
+    it("environmentless: false explicitly creates default environments", async () => {
+      const res = await post(
+        "/projects",
+        { name: "explicit-not-envless", environmentless: false },
+        userKey
+      );
+      expect(res.status).toBe(201);
+      const listRes = await get(
+        "/projects/explicit-not-envless/configs",
+        userKey
+      );
+      expect(listRes.status).toBe(200);
+      const listJson = (await listRes.json()) as any;
+      expect(listJson.data.configs).toHaveLength(2);
+      const names = listJson.data.configs.map((c: any) => c.name).sort();
+      expect(names).toEqual(["Dev", "Prod"]);
+    });
+
     it("returns 404 when deleting non-existent project", async () => {
       const res = await del("/projects/nope", userKey);
       expect(res.status).toBe(404);
@@ -199,7 +269,7 @@ describe("Keyflare API", () => {
       const bootstrapRes = await post("/bootstrap");
       const bootstrapJson = (await bootstrapRes.json()) as any;
       userKey = bootstrapJson.data.key;
-      await post("/projects", { name: "my-api" }, userKey);
+      await post("/projects", { name: "my-api", environmentless: true }, userKey);
     });
 
     it("creates a config", async () => {
@@ -269,7 +339,7 @@ describe("Keyflare API", () => {
       const bootstrapRes = await post("/bootstrap");
       const bootstrapJson = (await bootstrapRes.json()) as any;
       userKey = bootstrapJson.data.key;
-      await post("/projects", { name: "my-api" }, userKey);
+      await post("/projects", { name: "my-api", environmentless: true }, userKey);
       await post(
         "/projects/my-api/configs",
         { name: "production" },
@@ -1008,10 +1078,10 @@ describe("Keyflare API", () => {
       const bootstrapRes = await post("/bootstrap");
       const userKey = ((await bootstrapRes.json()) as any).data.key;
 
-      // 2. Create project
+      // 2. Create project (environmentless so we control config names in this test)
       const projRes = await post(
         "/projects",
-        { name: "webapp" },
+        { name: "webapp", environmentless: true },
         userKey
       );
       expect(projRes.status).toBe(201);
