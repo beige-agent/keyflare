@@ -61,6 +61,7 @@ CLI (kfl) ──HTTPS──▶ Cloudflare Worker ──▶ D1 (encrypted)
 
 | Document | Description |
 |----------|-------------|
+| [Contributing](./CONTRIBUTING.md) | How to work locally and submit changes |
 | [Architecture](./docs/01-architecture.md) | System design, data model, tech stack |
 | [Security Model](./docs/02-security-model.md) | Encryption, hashing, threat model, master key management |
 | [API Keys & Access](./docs/03-api-keys-and-access.md) | Key types, scoping, permissions, bootstrap flow |

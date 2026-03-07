@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "Open Source Secrets Manager built entirely on Cloudflare",
-  "packageManager": "pnpm@10.17.1",
+  "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "pnpm --filter @keyflare/server dev",
-    "setup": "pnpm install && pnpm --filter @keyflare/cli build:fast && pnpm install",
+    "setup": "pnpm install && pnpm --filter @keyflare/cli build:fast",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
