@@ -1,6 +1,7 @@
 import type { KeyType, Permission, KeyScope } from "@keyflare/shared";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
+/** Cloudflare Worker bindings (c.env) */
 export interface Env {
   DB: D1Database;
   MASTER_KEY: string;
@@ -19,3 +20,13 @@ export interface DerivedKeys {
   encryptionKey: CryptoKey;
   hmacKey: CryptoKey;
 }
+
+/** Hono app generic: Bindings from Worker env, Variables from middleware */
+export type AppEnv = {
+  Bindings: Env;
+  Variables: {
+    db: DrizzleD1Database;
+    derivedKeys: DerivedKeys;
+    auth: AuthContext;
+  };
+};

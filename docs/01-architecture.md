@@ -52,7 +52,7 @@ keyflare/
 ├── packages/
 │   ├── server/          # Cloudflare Worker
 │   │   ├── src/
-│   │   │   ├── index.ts           # Worker entry point & router
+│   │   │   ├── index.ts           # Hono app entry point & route registration
 │   │   │   ├── routes/            # API route handlers
 │   │   │   │   ├── bootstrap.ts
 │   │   │   │   ├── keys.ts
@@ -60,7 +60,8 @@ keyflare/
 │   │   │   │   ├── configs.ts
 │   │   │   │   └── secrets.ts
 │   │   │   ├── middleware/
-│   │   │   │   └── auth.ts        # API key verification & scope checks
+│   │   │   │   ├── auth.ts        # API key verification & scope checks
+│   │   │   │   └── hono.ts        # Hono middleware (db, derivedKeys, auth)
 │   │   │   ├── crypto/
 │   │   │   │   ├── encrypt.ts     # AES-256-GCM encrypt/decrypt
 │   │   │   │   ├── hash.ts        # SHA-256, HMAC-SHA256
@@ -215,6 +216,7 @@ CLI (kfl)                         Keyflare Worker                    D1
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
+| Web framework | Hono | Ultrafast router, middleware, typed context; runs on Cloudflare Workers; exports `AppType` for optional RPC clients |
 | Runtime | Cloudflare Workers | Edge deployment, zero cold starts, built-in secrets management |
 | Database | Cloudflare D1 (SQLite) | Zero config, co-located with Worker, SQL support |
 | Encryption | AES-256-GCM (Web Crypto API) | Available natively in Workers runtime, authenticated encryption |

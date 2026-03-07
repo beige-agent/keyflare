@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Keyflare API — Cloudflare Worker + D1",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

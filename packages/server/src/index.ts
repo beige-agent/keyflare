@@ -1,10 +1,14 @@
+import { Hono } from "hono";
 import { VERSION } from "@keyflare/shared";
 import type { HealthResponse } from "@keyflare/shared";
-import { drizzle } from "drizzle-orm/d1";
-import { deriveMasterKeys } from "./crypto/keys.js";
-import { authenticate } from "./middleware/auth.js";
+import { dbAndKeysMiddleware, authMiddleware } from "./middleware/hono.js";
 import { handleBootstrap } from "./routes/bootstrap.js";
-import { handleCreateKey, handleListKeys, handleRevokeKey, handleUpdateKey } from "./routes/keys.js";
+import {
+  handleCreateKey,
+  handleListKeys,
+  handleRevokeKey,
+  handleUpdateKey,
+} from "./routes/keys.js";
 import {
   handleCreateProject,
   handleListProjects,
@@ -20,161 +24,166 @@ import {
   handleSetSecrets,
   handlePatchSecrets,
 } from "./routes/secrets.js";
-import type { Env } from "./types.js";
+import type { AppEnv } from "./types.js";
 import { jsonOk, jsonError } from "./utils.js";
 
-export default {
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      const path = url.pathname;
-      const method = request.method;
+const app = new Hono<AppEnv>();
 
-      // ─── Health ───
-      if (path === "/health" && method === "GET") {
-        return jsonOk<HealthResponse>({ ok: true, version: VERSION });
-      }
+// ─── Health (no middleware) ───
+app.get("/health", (c) =>
+  jsonOk<HealthResponse>({ ok: true, version: VERSION })
+);
 
-      // Create Drizzle D1 instance
-      const db = drizzle(env.DB);
+// ─── Bootstrap (db + keys, no auth) ───
+app.post("/bootstrap", dbAndKeysMiddleware, async (c) => {
+  const db = c.get("db");
+  const derivedKeys = c.get("derivedKeys");
+  return handleBootstrap(c.req.raw, db, derivedKeys);
+});
 
-      // Derive keys from MASTER_KEY (used for all crypto operations)
-      const derivedKeys = await deriveMasterKeys(env.MASTER_KEY);
+// ─── Keys (db + keys + auth) ───
+const keysApp = new Hono<AppEnv>()
+  .use("*", dbAndKeysMiddleware, authMiddleware)
+  .get("/", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    return handleListKeys(c.req.raw, db, auth, derivedKeys);
+  })
+  .post("/", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    return handleCreateKey(c.req.raw, db, auth, derivedKeys);
+  })
+  .delete("/:prefix", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const prefix = c.req.param("prefix");
+    return handleRevokeKey(c.req.raw, db, auth, prefix);
+  })
+  .put("/:prefix", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const prefix = c.req.param("prefix");
+    return handleUpdateKey(c.req.raw, db, auth, derivedKeys, prefix);
+  });
+app.route("/keys", keysApp);
 
-      // ─── Bootstrap (unauthenticated) ───
-      if (path === "/bootstrap") {
-        return handleBootstrap(request, db, derivedKeys);
-      }
+// ─── Projects (db + keys + auth) ───
+const projectsApp = new Hono<AppEnv>()
+  .use("*", dbAndKeysMiddleware, authMiddleware)
+  .get("/", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    return handleListProjects(c.req.raw, db, auth, derivedKeys);
+  })
+  .post("/", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    return handleCreateProject(c.req.raw, db, auth, derivedKeys);
+  })
+  .delete("/:name", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const name = decodeURIComponent(c.req.param("name") ?? "");
+    return handleDeleteProject(c.req.raw, db, auth, derivedKeys, name);
+  });
 
-      // ─── All other routes require auth ───
-      const auth = await authenticate(request, db, derivedKeys);
-      if (!auth) {
-        return jsonError("UNAUTHORIZED", "Invalid or missing API key", 401);
-      }
+// ─── Configs: /projects/:project/configs ───
+const configsApp = new Hono<AppEnv>()
+  .get("/", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const project = decodeURIComponent(c.req.param("project") ?? "");
+    return handleListConfigs(c.req.raw, db, auth, derivedKeys, project);
+  })
+  .post("/", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const project = decodeURIComponent(c.req.param("project") ?? "");
+    return handleCreateConfig(c.req.raw, db, auth, derivedKeys, project);
+  })
+  .delete("/:config", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const project = decodeURIComponent(c.req.param("project") ?? "");
+    const config = decodeURIComponent(c.req.param("config") ?? "");
+    return handleDeleteConfig(
+      c.req.raw,
+      db,
+      auth,
+      derivedKeys,
+      project,
+      config
+    );
+  })
+  .get("/:config/secrets", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const project = decodeURIComponent(c.req.param("project") ?? "");
+    const config = decodeURIComponent(c.req.param("config") ?? "");
+    return handleGetSecrets(
+      c.req.raw,
+      db,
+      auth,
+      derivedKeys,
+      project,
+      config
+    );
+  })
+  .put("/:config/secrets", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const project = decodeURIComponent(c.req.param("project") ?? "");
+    const config = decodeURIComponent(c.req.param("config") ?? "");
+    return handleSetSecrets(
+      c.req.raw,
+      db,
+      auth,
+      derivedKeys,
+      project,
+      config
+    );
+  })
+  .patch("/:config/secrets", async (c) => {
+    const db = c.get("db");
+    const auth = c.get("auth");
+    const derivedKeys = c.get("derivedKeys");
+    const project = decodeURIComponent(c.req.param("project") ?? "");
+    const config = decodeURIComponent(c.req.param("config") ?? "");
+    return handlePatchSecrets(
+      c.req.raw,
+      db,
+      auth,
+      derivedKeys,
+      project,
+      config
+    );
+  });
 
-      // ─── Keys ───
-      if (path === "/keys" && method === "POST") {
-        return handleCreateKey(request, db, auth, derivedKeys);
-      }
-      if (path === "/keys" && method === "GET") {
-        return handleListKeys(request, db, auth, derivedKeys);
-      }
-      // DELETE /keys/:prefix
-      const revokeMatch = path.match(/^\/keys\/([^/]+)$/);
-      if (revokeMatch && method === "DELETE") {
-        return handleRevokeKey(request, db, auth, revokeMatch[1]);
-      }
-      // PUT /keys/:prefix
-      if (revokeMatch && method === "PUT") {
-        return handleUpdateKey(request, db, auth, derivedKeys, revokeMatch[1]);
-      }
+projectsApp.route("/:project/configs", configsApp);
+app.route("/projects", projectsApp);
 
-      // ─── Projects ───
-      if (path === "/projects" && method === "POST") {
-        return handleCreateProject(request, db, auth, derivedKeys);
-      }
-      if (path === "/projects" && method === "GET") {
-        return handleListProjects(request, db, auth, derivedKeys);
-      }
-      // DELETE /projects/:name
-      const deleteProjectMatch = path.match(/^\/projects\/([^/]+)$/);
-      if (deleteProjectMatch && method === "DELETE") {
-        return handleDeleteProject(
-          request,
-          db,
-          auth,
-          derivedKeys,
-          decodeURIComponent(deleteProjectMatch[1])
-        );
-      }
+// ─── 404 ───
+app.notFound((c) =>
+  jsonError("NOT_FOUND", `Route not found: ${c.req.method} ${c.req.path}`, 404)
+);
 
-      // ─── Configs (Environments) ───
-      // POST /projects/:project/configs
-      const createConfigMatch = path.match(
-        /^\/projects\/([^/]+)\/configs$/
-      );
-      if (createConfigMatch && method === "POST") {
-        return handleCreateConfig(
-          request,
-          db,
-          auth,
-          derivedKeys,
-          decodeURIComponent(createConfigMatch[1])
-        );
-      }
-      if (createConfigMatch && method === "GET") {
-        return handleListConfigs(
-          request,
-          db,
-          auth,
-          derivedKeys,
-          decodeURIComponent(createConfigMatch[1])
-        );
-      }
-      // DELETE /projects/:project/configs/:config
-      const deleteConfigMatch = path.match(
-        /^\/projects\/([^/]+)\/configs\/([^/]+)$/
-      );
-      if (deleteConfigMatch && method === "DELETE") {
-        return handleDeleteConfig(
-          request,
-          db,
-          auth,
-          derivedKeys,
-          decodeURIComponent(deleteConfigMatch[1]),
-          decodeURIComponent(deleteConfigMatch[2])
-        );
-      }
+// ─── Global error handler ───
+app.onError((err, c) => {
+  console.error("Internal error:", err);
+  return jsonError("INTERNAL_ERROR", "An internal error occurred", 500);
+});
 
-      // ─── Secrets ───
-      // GET /projects/:project/configs/:config/secrets
-      const secretsMatch = path.match(
-        /^\/projects\/([^/]+)\/configs\/([^/]+)\/secrets$/
-      );
-      if (secretsMatch && method === "GET") {
-        return handleGetSecrets(
-          request,
-          db,
-          auth,
-          derivedKeys,
-          decodeURIComponent(secretsMatch[1]),
-          decodeURIComponent(secretsMatch[2])
-        );
-      }
-      if (secretsMatch && method === "PUT") {
-        return handleSetSecrets(
-          request,
-          db,
-          auth,
-          derivedKeys,
-          decodeURIComponent(secretsMatch[1]),
-          decodeURIComponent(secretsMatch[2])
-        );
-      }
-      if (secretsMatch && method === "PATCH") {
-        return handlePatchSecrets(
-          request,
-          db,
-          auth,
-          derivedKeys,
-          decodeURIComponent(secretsMatch[1]),
-          decodeURIComponent(secretsMatch[2])
-        );
-      }
-
-      // ─── 404 ───
-      return jsonError("NOT_FOUND", `Route not found: ${method} ${path}`, 404);
-    } catch (err) {
-      console.error("Internal error:", err);
-      return jsonError(
-        "INTERNAL_ERROR",
-        "An internal error occurred",
-        500
-      );
-    }
-  },
-};
+export default app;
+export type AppType = typeof app;

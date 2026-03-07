@@ -33,10 +33,11 @@ async function request<T>(
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     throw new KeyflareApiError(
       "NETWORK_ERROR",
-      `Cannot reach API at ${apiUrl}: ${err.message}`,
+      `Cannot reach API at ${apiUrl}: ${message}`,
       0
     );
   }
