@@ -75,7 +75,9 @@ keyflare/
 │   │   │   └── 0000_init.sql
 │   │   ├── test/
 │   │   │   ├── api.test.ts        # Full API integration tests
-│   │   │   └── global-setup.ts    # Temp dir lifecycle for test isolation
+│   │   │   ├── basic.test.ts      # Smoke + integration (health, auth, keys, projects, secrets)
+│   │   │   ├── env.d.ts            # cloudflare:test ProvidedEnv types
+│   │   │   └── global-setup.ts     # Temp dir lifecycle for test isolation
 │   │   ├── drizzle.config.ts
 │   │   ├── vitest.config.ts
 │   │   └── wrangler.toml
