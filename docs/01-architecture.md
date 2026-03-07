@@ -216,7 +216,8 @@ CLI (kfl)                         Keyflare Worker                    D1
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
-| Web framework | Hono | Ultrafast router, middleware, typed context; runs on Cloudflare Workers; exports `AppType` for optional RPC clients |
+| Web framework | Hono | Ultrafast router, middleware, typed context; runs on Cloudflare Workers; exports `AppType` for RPC clients |
+| API client (CLI) | Hono RPC (`hc`) | CLI uses `hc<AppType>` with an explicit client interface for typed requests; same paths and response envelope |
 | Runtime | Cloudflare Workers | Edge deployment, zero cold starts, built-in secrets management |
 | Database | Cloudflare D1 (SQLite) | Zero config, co-located with Worker, SQL support |
 | Encryption | AES-256-GCM (Web Crypto API) | Available natively in Workers runtime, authenticated encryption |

@@ -6,7 +6,7 @@
     "moduleResolution": "bundler",
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": ["node", "@cloudflare/workers-types"]
   },
   "include": ["src/**/*"]
 }
