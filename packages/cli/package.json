@@ -14,8 +14,8 @@
     "build": "tsup",
     "build:fast": "tsup --no-dts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "lint": "eslint src/"
+    "test": "vitest run --passWithNoTests",
+    "lint": "oxlint src/"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",

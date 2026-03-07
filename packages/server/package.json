@@ -11,7 +11,7 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src/",
+    "lint": "oxlint src/ test/",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio --port 4983",
     "db:studio:remote": "DRIZZLE_REMOTE=true drizzle-kit studio --port 4983",

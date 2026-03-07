@@ -8,8 +8,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "lint": "eslint src/"
+    "test": "vitest run --passWithNoTests",
+    "lint": "oxlint src/"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

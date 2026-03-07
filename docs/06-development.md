@@ -187,6 +187,8 @@ The `database_id` is logged during `kfl init` and is also visible in the Cloudfl
 
 Tests run entirely inside a Miniflare Worker runtime — no network calls, no Cloudflare account needed.
 
+Only the **server** package has tests today. The **cli** and **shared** packages use `vitest run --passWithNoTests`, so they exit 0 when there are no test files; adding test files later will run them automatically.
+
 ```bash
 # Run server tests (31 integration tests)
 pnpm --filter @keyflare/server test
@@ -232,6 +234,20 @@ pnpm run typecheck
 # or individually:
 pnpm --filter @keyflare/server typecheck
 pnpm --filter @keyflare/cli typecheck
+```
+
+## Linting
+
+Linting uses [oxlint](https://oxc-project.github.io/docs/guide/usage/linter/) with the `typescript/no-floating-promises` rule enabled (see [Cloudflare Workers best practices](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/#always-await-or-waituntil-your-promises)) so that unhandled Promises are caught at lint time.
+
+```bash
+# Lint all packages
+pnpm run lint
+
+# Lint a single package
+pnpm --filter @keyflare/server lint
+pnpm --filter @keyflare/cli lint
+pnpm --filter @keyflare/shared lint
 ```
 
 ## Debugging
