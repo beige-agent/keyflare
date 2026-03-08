@@ -4,13 +4,13 @@
 
 ### Via `kfl init` (Recommended)
 
-`kfl init` automates the entire setup. It supports two authentication methods:
+`kfl init` automates the entire setup. It supports two authentication methods and auto-detects existing Wrangler login first (`npx wrangler whoami --json`):
 
 ```bash
 kfl init
 ```
 
-You will be prompted to choose:
+If Wrangler is not already logged in (and no API token is set), you will be prompted to choose:
 
 ```
 ? How would you like to authenticate with Cloudflare?
@@ -31,13 +31,15 @@ You will be prompted to choose:
 
 **What `kfl init` does:**
 
-1. Verifies Cloudflare credentials (`wrangler whoami`)
-2. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from config)
-3. Checks if `MASTER_KEY` exists on the worker
-4. If missing, generates a 256-bit `MASTER_KEY` and stores it as a Worker secret
-5. Applies Drizzle migrations via `wrangler d1 migrations apply DB_BINDING --remote`
-6. Calls `POST /bootstrap` to create the first root user key (idempotent)
-7. Saves the API URL and root key to `~/.config/keyflare/`
+1. Checks current Wrangler auth (`npx wrangler whoami --json`)
+2. Reuses existing login if present, otherwise uses `CLOUDFLARE_API_TOKEN` or prompts for auth method
+3. Verifies Cloudflare credentials (`wrangler whoami`)
+4. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from config)
+5. Checks if `MASTER_KEY` exists on the worker
+6. If missing, generates a 256-bit `MASTER_KEY` and stores it as a Worker secret
+7. Applies Drizzle migrations via `wrangler d1 migrations apply DB_BINDING --remote`
+8. Calls `POST /bootstrap` to create the first root user key (idempotent)
+9. Saves the API URL and root key to `~/.config/keyflare/`
 
 ```
 $ kfl init

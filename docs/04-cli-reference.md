@@ -32,12 +32,14 @@ kfl init [--force] [--masterkey <key>]
 | `--force` | Reserved for compatibility (currently no-op) |
 | `--masterkey <key>` | Custom master key (base64-encoded 256-bit). See [Master Key Format](#master-key-format) below. |
 
-**Authentication options** — prompted interactively on first run:
+**Authentication behavior**:
 
 | Method | How |
 |--------|-----|
-| **Browser (OAuth)** | Opens `cloudflare.com` via `wrangler login`. Session is cached — no token to manage. |
+| **Browser (OAuth)** | Reuses an existing Wrangler session when available (detected via `npx wrangler whoami --json`). If not logged in, can open `cloudflare.com` via `wrangler login`. |
 | **API Token** | Paste a token at the prompt, or pre-set `CLOUDFLARE_API_TOKEN` to skip the prompt (CI-friendly). |
+
+If Wrangler is already logged in, `kfl init` skips auth prompts and uses that session automatically.
 
 If `CLOUDFLARE_API_TOKEN` is already set in the environment, it is used silently without prompting.
 
@@ -69,14 +71,16 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 `kfl init` always runs the same flow:
 
-1. Prompts for Cloudflare auth method (OAuth browser or API token)
-2. Verifies credentials (`wrangler whoami`)
-3. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from `wrangler.jsonc`)
-4. Checks whether `MASTER_KEY` already exists on the worker
-5. If missing, generates 256-bit `MASTER_KEY` (or uses `--masterkey`) and stores it via `wrangler secret put`
-6. Applies Drizzle migrations (`wrangler d1 migrations apply DB_BINDING --remote`)
-7. Calls `POST /bootstrap` (idempotent: conflict means already initialized)
-8. Saves API URL (and root key when newly created) to `~/.config/keyflare/`
+1. Checks current Wrangler auth via `npx wrangler whoami --json`
+2. If logged in, reuses that session (no auth prompt)
+3. If not logged in, uses `CLOUDFLARE_API_TOKEN` when present, otherwise prompts for OAuth browser login or API token
+4. Verifies credentials (`wrangler whoami`)
+5. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from `wrangler.jsonc`)
+6. Checks whether `MASTER_KEY` already exists on the worker
+7. If missing, generates 256-bit `MASTER_KEY` (or uses `--masterkey`) and stores it via `wrangler secret put`
+8. Applies Drizzle migrations (`wrangler d1 migrations apply DB_BINDING --remote`)
+9. Calls `POST /bootstrap` (idempotent: conflict means already initialized)
+10. Saves API URL (and root key when newly created) to `~/.config/keyflare/`
 
 ```
 $ kfl init

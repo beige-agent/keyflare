@@ -61,17 +61,25 @@ async function resolveCloudflareAuth(): Promise<{
   method: "oauth" | "token";
 }> {
   debug("resolving Cloudflare auth strategy");
-  // If an API token is already set in the environment, use it directly
+  // Check first if wrangler already has an authenticated session.
+  // If so, reuse it without prompting.
+  const hasOAuthSession = checkWranglerOAuthSession();
+  if (hasOAuthSession) {
+    debug("reusing existing wrangler oauth session");
+    return { env: {}, method: "oauth" };
+  }
+
+  // If an API token is already set in the environment, use it directly.
   if (process.env.CLOUDFLARE_API_TOKEN) {
-    debug("using CLOUDFLARE_API_TOKEN from env (%s)", redact(process.env.CLOUDFLARE_API_TOKEN));
+    debug(
+      "using CLOUDFLARE_API_TOKEN from env (%s)",
+      redact(process.env.CLOUDFLARE_API_TOKEN)
+    );
     return {
       env: { CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN },
       method: "token",
     };
   }
-
-  // Check if wrangler already has a cached OAuth session
-  const hasOAuthSession = checkWranglerOAuthSession();
 
   const method = await select({
     message: "How would you like to authenticate with Cloudflare?",
@@ -121,15 +129,22 @@ async function resolveCloudflareAuth(): Promise<{
 
 function checkWranglerOAuthSession(): boolean {
   try {
-    // wrangler whoami exits 0 if authenticated
-    const result = spawnSync("npx", ["wrangler", "whoami"], {
+    const result = spawnSync("npx", ["wrangler", "whoami", "--json"], {
       stdio: "pipe",
     });
-    const hasSession = result.status === 0;
-    debug("wrangler oauth session=%s", hasSession);
+
+    if (result.status !== 0) {
+      debug("wrangler whoami --json exited with status=%s", result.status);
+      return false;
+    }
+
+    const raw = result.stdout?.toString() ?? "";
+    const payload = JSON.parse(raw) as { loggedIn?: boolean; authType?: string };
+    const hasSession = payload.loggedIn === true;
+    debug("wrangler oauth session=%s authType=%s", hasSession, payload.authType ?? "unknown");
     return hasSession;
   } catch {
-    debug("wrangler whoami check failed while probing oauth session");
+    debug("wrangler whoami --json check failed while probing oauth session");
     return false;
   }
 }
