@@ -71,10 +71,10 @@ function ensureDevVars(force = false): string {
  * Apply D1 migrations locally using wrangler.
  */
 function applyLocalMigrations() {
-  debug("applying local migrations via DB_BINDING");
+  debug("applying local migrations via keyflare");
   const result = spawnSync(
     "npx",
-    ["wrangler", "d1", "migrations", "apply", "DB_BINDING", "--local"],
+    ["wrangler", "d1", "migrations", "apply", "keyflare", "--local"],
     {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: serverDir(),

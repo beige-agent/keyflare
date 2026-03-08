@@ -60,7 +60,7 @@ wrangler login
 wrangler deploy
 
 # Run migrations
-wrangler d1 migrations apply DB_BINDING --remote
+wrangler d1 migrations apply keyflare --remote
 
 # Generate and push the master encryption key
 openssl rand -base64 32 | wrangler secret put MASTER_KEY

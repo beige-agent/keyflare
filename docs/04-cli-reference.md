@@ -78,7 +78,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 5. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from `wrangler.jsonc`)
 6. Checks whether `MASTER_KEY` already exists on the worker
 7. If missing, generates 256-bit `MASTER_KEY` (or uses `--masterkey`) and stores it via `wrangler secret put`
-8. Applies Drizzle migrations (`wrangler d1 migrations apply DB_BINDING --remote`)
+8. Applies Drizzle migrations (`wrangler d1 migrations apply keyflare --remote`)
 9. Calls `POST /bootstrap` (idempotent: conflict means already initialized)
 10. Saves API URL (and root key when newly created) to `~/.config/keyflare/`
 

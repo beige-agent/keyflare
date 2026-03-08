@@ -333,7 +333,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   // ── Step 4: Run D1 migrations
   const migrateSpinner = ora("Running database migrations...").start();
   try {
-    wrangler(["d1", "migrations", "apply", "DB_BINDING", "--remote"], authEnv, serverDir());
+    wrangler(["d1", "migrations", "apply", "keyflare", "--remote"], authEnv, serverDir());
     debug("migrations apply completed");
     migrateSpinner.succeed("Database migrations applied");
   } catch (err: any) {

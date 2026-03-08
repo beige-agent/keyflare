@@ -37,7 +37,7 @@ If Wrangler is not already logged in (and no API token is set), you will be prom
 4. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from config)
 5. Checks if `MASTER_KEY` exists on the worker
 6. If missing, generates a 256-bit `MASTER_KEY` and stores it as a Worker secret
-7. Applies Drizzle migrations via `wrangler d1 migrations apply DB_BINDING --remote`
+7. Applies Drizzle migrations via `wrangler d1 migrations apply keyflare --remote`
 8. Calls `POST /bootstrap` to create the first root user key (idempotent)
 9. Saves the API URL and root key to `~/.config/keyflare/`
 
