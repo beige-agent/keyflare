@@ -4,11 +4,9 @@ import type {
   ListConfigsResponse,
 } from "@keyflare/shared";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { encrypt, decrypt } from "../crypto/encrypt.js";
-import { hmacSha256 } from "../crypto/hash.js";
 import {
-  getProjectByHash,
-  getEnvironmentByHash,
+  getProjectByName,
+  getEnvironmentByName,
   listEnvironments,
   insertEnvironment,
   deleteEnvironment,
@@ -21,11 +19,10 @@ import { isUserKey, hasScope } from "../middleware/auth.js";
 /** Resolve a project by name → { id, name } or return error Response. */
 export async function resolveProject(
   db: DrizzleD1Database,
-  derivedKeys: DerivedKeys,
+  _derivedKeys: DerivedKeys,
   projectName: string
 ): Promise<{ id: string; name: string } | Response> {
-  const nameHash = await hmacSha256(derivedKeys.hmacKey, projectName);
-  const project = await getProjectByHash(db, nameHash);
+  const project = await getProjectByName(db, projectName);
   if (!project) {
     return jsonError("NOT_FOUND", `Project "${projectName}" not found`, 404);
   }
@@ -35,12 +32,11 @@ export async function resolveProject(
 /** Resolve an environment by name within a project → { id, name } or error Response. */
 export async function resolveEnvironment(
   db: DrizzleD1Database,
-  derivedKeys: DerivedKeys,
+  _derivedKeys: DerivedKeys,
   projectId: string,
   configName: string
 ): Promise<{ id: string; name: string } | Response> {
-  const nameHash = await hmacSha256(derivedKeys.hmacKey, configName);
-  const environment = await getEnvironmentByHash(db, projectId, nameHash);
+  const environment = await getEnvironmentByName(db, projectId, configName);
   if (!environment) {
     return jsonError("NOT_FOUND", `Config "${configName}" not found`, 404);
   }
@@ -71,14 +67,12 @@ export async function handleCreateConfig(
   if (projectResult instanceof Response) return projectResult;
 
   const name = body.name.trim();
-  const nameHash = await hmacSha256(derivedKeys.hmacKey, name);
-  const nameEncrypted = await encrypt(derivedKeys.encryptionKey, name);
 
   // Check for duplicate
-  const existing = await getEnvironmentByHash(
+  const existing = await getEnvironmentByName(
     db,
     projectResult.id,
-    nameHash
+    name
   );
   if (existing) {
     return jsonError(
@@ -94,8 +88,7 @@ export async function handleCreateConfig(
   await insertEnvironment(db, {
     id,
     projectId: projectResult.id,
-    nameEncrypted,
-    nameHash,
+    name,
     createdAt: now,
   });
 
@@ -124,12 +117,7 @@ export async function handleListConfigs(
   const configs = [];
 
   for (const row of rows) {
-    let name: string;
-    try {
-      name = await decrypt(derivedKeys.encryptionKey, row.nameEncrypted);
-    } catch {
-      name = "(decryption failed)";
-    }
+    const name = row.name;
 
     // If system key, filter by scope
     if (auth.keyType === "system") {
