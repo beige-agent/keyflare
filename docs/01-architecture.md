@@ -11,7 +11,7 @@ Think of it as a self-hosted Doppler/Infisical that fits inside one Cloudflare W
 ## Core Principles
 
 1. **Single deployment target** — One Worker, one D1 database, one master secret. Nothing else.
-2. **Zero trust storage** — All secret values and keys are encrypted at rest with AES-256-GCM. API keys are hashed with SHA-256. Even with full DB access, an attacker learns nothing.
+2. **Zero trust storage** — Secret keys and values are encrypted at rest with AES-256-GCM. API keys are hashed with SHA-256. Even with full DB access, secret contents remain protected.
 3. **Minimal surface area** — No users, no sessions, no OAuth. Just API keys with scoped permissions.
 4. **Simple mental model** — Projects → Environments → Key/Value secrets. That's it. New projects get two default environments (**Dev** and **Prod**) unless created with the `environmentless` option (API) or `--environmentless` flag (CLI).
 
@@ -114,8 +114,7 @@ apiKeys: {
 // projects
 projects: {
   id              text PK
-  name_encrypted  text NOT NULL       -- AES-256-GCM encrypted
-  name_hash       text NOT NULL UNIQUE -- HMAC-SHA256 for lookups
+  name            text NOT NULL UNIQUE -- plaintext project name
   created_at      text NOT NULL
 }
 
@@ -125,10 +124,9 @@ projects: {
 environments: {
   id              text PK
   project_id      text → projects.id ON DELETE CASCADE
-  name_encrypted  text NOT NULL       -- AES-256-GCM encrypted
-  name_hash       text NOT NULL       -- HMAC-SHA256 for lookups
+  name            text NOT NULL       -- plaintext environment name
   created_at      text NOT NULL
-  UNIQUE(project_id, name_hash)
+  UNIQUE(project_id, name)
 }
 
 // secrets
@@ -159,8 +157,8 @@ CLI (kfl)                         Keyflare Worker                    D1
    │                                    │  3. Verify key + scopes    │
    │                                    │<────────────────────────────│
    │                                    │                             │
-   │                                    │  4. HMAC project+env names │
-   │                                    │  5. Query secrets by hash  │
+   │                                    │  4. Look up project+env by name │
+   │                                    │  5. Query secrets by env id     │
    │                                    │────────────────────────────>│
    │                                    │<────────────────────────────│
    │                                    │                             │
@@ -183,7 +181,7 @@ CLI (kfl)                         Keyflare Worker                    D1
 | Database           | Cloudflare D1 (SQLite)        | Zero config, co-located with Worker, SQL support                                                              |
 | Encryption         | AES-256-GCM (Web Crypto API)  | Available natively in Workers runtime, authenticated encryption                                               |
 | Hashing (API keys) | SHA-256 (Web Crypto API)      | API keys have 128-bit entropy — brute-force infeasible regardless of hash speed. Native, zero dependencies.   |
-| Hashing (lookups)  | HMAC-SHA256                   | Deterministic, keyed — allows lookups without exposing plaintext                                              |
+| Hashing (lookups)  | HMAC-SHA256                   | Deterministic keyed lookup for `secrets.key_hash` without storing plaintext secret keys                       |
 | CLI framework      | Commander.js                  | Mature, TypeScript-native, great DX                                                                           |
 | ORM / migrations   | Drizzle ORM + drizzle-kit     | Type-safe queries inferred from schema; generates versioned SQL migrations                                    |
 | CLI UI             | chalk, ora, @inquirer/prompts | Coloured output, spinners, interactive prompts                                                                |

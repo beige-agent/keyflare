@@ -6,7 +6,7 @@ Keyflare assumes the following threat scenarios:
 
 | Threat | Mitigation |
 |--------|-----------|
-| D1 database dump / leak | All secret values, secret keys, and project/environment names are **AES-256-GCM encrypted**. API keys are **hashed**. Raw DB data is useless. |
+| D1 database dump / leak | Secret values and secret keys are **AES-256-GCM encrypted**. API keys are **hashed**. Project/environment names are plaintext metadata. |
 | API key theft | Keys are scoped — a system key can only access specific project/environment combinations. Revocation is instant. |
 | Network interception | All traffic to Cloudflare Workers is TLS-encrypted (HTTPS enforced). |
 | Master key compromise | Single point of failure by design. See [Master Key Management](#master-key-management). |
@@ -51,9 +51,9 @@ We use **HKDF (HMAC-based Key Derivation Function)** to derive two separate keys
 
 This separation ensures that even if the HMAC key were somehow exposed, the encryption key remains independent.
 
-### Symmetric Encryption — Secret Values
+### Symmetric Encryption — Secret Material
 
-All sensitive data in D1 is encrypted with **AES-256-GCM**:
+Sensitive secret material in D1 is encrypted with **AES-256-GCM**:
 
 ```
 Encrypt(plaintext):
@@ -73,14 +73,14 @@ Decrypt(stored):
 **What gets encrypted:**
 - Secret values (`DB_PASSWORD=hunter2`)
 - Secret key names (`DB_PASSWORD`)
-- Project names
-- Environment names
 - API key labels
 - System key scope definitions
 
 **What is NOT encrypted (by design):**
 - Row IDs (UUIDs, no information leakage)
 - Timestamps (created_at, updated_at)
+- Project names
+- Environment names
 - API key type (`user` / `system`)
 - API key permission level (`read` / `readwrite`)
 - Revocation status
@@ -97,8 +97,6 @@ LookupHash(name):
 ```
 
 This is used for:
-- `projects.name_hash` — find project by name
-- `environments.name_hash` — find environment by name within a project
 - `secrets.key_hash` — find/upsert secret by key name within an environment
 
 HMAC is deterministic (same input → same hash) but keyed, so it's not reversible without the HMAC key.
@@ -303,12 +301,12 @@ A hardcoded development key is acceptable because local D1 is ephemeral and cont
 │  │ D1 Database                                                   │ │
 │  │                                                                │ │
 │  │  Contains ONLY:                                                │ │
-│  │  - Encrypted blobs (AES-256-GCM)                              │ │
+│  │  - Encrypted secret/key blobs (AES-256-GCM)                   │ │
 │  │  - HMAC hashes (for lookups)                                   │ │
 │  │  - SHA-256 hashes (API keys)                                   │ │
 │  │  - Non-sensitive metadata (timestamps, UUIDs, types)           │ │
 │  │                                                                │ │
-│  │  A full database dump reveals NOTHING about secret contents.   │ │
+│  │  A full database dump still hides secret values and key names. │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘

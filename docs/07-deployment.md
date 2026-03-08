@@ -129,7 +129,7 @@ curl -X POST https://keyflare.<account>.workers.dev/bootstrap
             │  └───────┬───────┘  │
             │          │          │
             │  ┌───────▼───────┐  │
-            │  │   D1 (SQLite) │  │  ← Single database, encrypted data
+            │  │   D1 (SQLite) │  │  ← Single database, encrypted secret data
             │  │   keyflare-db │  │
             │  └───────────────┘  │
             │                     │
@@ -240,7 +240,7 @@ npx wrangler d1 export keyflare-db --output backup.sql
 
 ### Master Key Backup
 
-**The MASTER_KEY is the single most critical piece of infrastructure.** Without it, all encrypted data is permanently unrecoverable — there is no backdoor.
+**The MASTER_KEY is the single most critical piece of infrastructure.** Without it, encrypted secret data is permanently unrecoverable — there is no backdoor.
 
 Recommended storage:
 1. Password manager (1Password, Bitwarden)

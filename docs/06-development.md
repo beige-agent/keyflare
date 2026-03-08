@@ -252,7 +252,7 @@ npx wrangler d1 execute keyflare-db --remote \
   --command "SELECT id, key_prefix, type FROM api_keys"
 ```
 
-Note: all `label`, `scopes`, `name_encrypted`, `key_encrypted`, and `value_encrypted` columns contain AES-256-GCM ciphertext — they are unreadable without the MASTER_KEY.
+Note: `label`, `scopes`, `key_encrypted`, and `value_encrypted` columns contain AES-256-GCM ciphertext — they are unreadable without the MASTER_KEY. Project/config names are stored in plaintext `name` columns.
 
 ---
 
