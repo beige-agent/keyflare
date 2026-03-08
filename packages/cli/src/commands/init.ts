@@ -1,27 +1,14 @@
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import { select, confirm, password } from "@inquirer/prompts";
 import ora from "ora";
 import type { BootstrapResponse } from "@keyflare/shared";
 import { api, KeyflareApiError } from "../api/client.js";
 import { writeConfig, writeApiKey, readConfig } from "../config.js";
+import { makeDebug, redact } from "../debug.js";
 import { log, success, warn, error, bold, dim } from "../output/log.js";
 
-// ─── Types ────────────────────────────────────────────────────
-
-interface WorkerVersionInfo {
-  id: string;
-  number: number;
-  metadata: {
-    bindings: {
-      d1_databases?: Array<{
-        name: string;
-        id: string;
-      }>;
-    };
-  };
-}
+const debug = makeDebug("init");
 
 /**
  * Master key format: base64-encoded 256-bit (32-byte) key.
@@ -32,6 +19,7 @@ interface WorkerVersionInfo {
 const MASTER_KEY_REGEX = /^[A-Za-z0-9+/]{43}={0,2}$/;
 
 function validateMasterKey(key: string): { valid: boolean; error?: string } {
+  debug("validating master key (len=%d)", key?.length ?? 0);
   if (!key || typeof key !== "string") {
     return { valid: false, error: "Master key is required" };
   }
@@ -72,8 +60,10 @@ async function resolveCloudflareAuth(): Promise<{
   env: Record<string, string>;
   method: "oauth" | "token";
 }> {
+  debug("resolving Cloudflare auth strategy");
   // If an API token is already set in the environment, use it directly
   if (process.env.CLOUDFLARE_API_TOKEN) {
+    debug("using CLOUDFLARE_API_TOKEN from env (%s)", redact(process.env.CLOUDFLARE_API_TOKEN));
     return {
       env: { CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN },
       method: "token",
@@ -100,6 +90,7 @@ async function resolveCloudflareAuth(): Promise<{
   });
 
   if (method === "oauth") {
+    debug("selected oauth auth flow");
     // Trigger wrangler-login OAuth flow
     log(
       dim(
@@ -115,6 +106,7 @@ async function resolveCloudflareAuth(): Promise<{
     // After wrangler login, wrangler uses its own cached token — no env var needed
     return { env: {}, method: "oauth" };
   } else {
+    debug("selected api token auth flow");
     // API token flow
     const token = await password({
       message: "Paste your Cloudflare API token:",
@@ -133,10 +125,21 @@ function checkWranglerOAuthSession(): boolean {
     const result = spawnSync("npx", ["wrangler", "whoami"], {
       stdio: "pipe",
     });
-    return result.status === 0;
+    const hasSession = result.status === 0;
+    debug("wrangler oauth session=%s", hasSession);
+    return hasSession;
   } catch {
+    debug("wrangler whoami check failed while probing oauth session");
     return false;
   }
+}
+
+/** Path to packages/server relative to this compiled CLI file */
+function serverDir(): string {
+  const here = new URL(".", import.meta.url).pathname;
+  // When built: packages/cli/dist/commands/init.js → ../../../server
+  // When running via tsx: packages/cli/src/commands/init.ts → ../../../server
+  return path.resolve(here, "../../../server");
 }
 
 function wrangler(
@@ -145,6 +148,7 @@ function wrangler(
   cwd?: string,
   options?: { ignoreError?: boolean }
 ): { stdout: string; stderr: string; status: number | null } {
+  debug("wrangler %o cwd=%s", args, cwd ?? process.cwd());
   const result = spawnSync("npx", ["wrangler", ...args], {
     stdio: ["inherit", "pipe", "pipe"],
     cwd,
@@ -156,6 +160,13 @@ function wrangler(
     throw new Error(`wrangler ${args[0]} failed:\n${stderr}`);
   }
 
+  debug(
+    "wrangler done status=%s stdoutLen=%d stderrLen=%d",
+    result.status,
+    result.stdout?.toString()?.length ?? 0,
+    result.stderr?.toString()?.length ?? 0
+  );
+
   return {
     stdout: result.stdout?.toString() ?? "",
     stderr: result.stderr?.toString() ?? "",
@@ -163,76 +174,38 @@ function wrangler(
   };
 }
 
-/**
- * Check if a worker named "keyflare" already exists.
- * Returns worker info if it exists, or null if it doesn't.
- */
-function checkWorkerExists(
-  authEnv: Record<string, string>
-): { exists: boolean; databaseId?: string } {
+function workerHasMasterKeySecret(authEnv: Record<string, string>): boolean {
+  debug("checking if worker has MASTER_KEY secret");
   const result = wrangler(
-    ["versions", "list", "--name", "keyflare", "--json"],
+    ["secret", "list", "--name", "keyflare", "--format", "json"],
     authEnv,
-    undefined,
-    { ignoreError: true }
+    serverDir(),
+    {
+      ignoreError: true,
+    }
   );
 
   if (result.status !== 0) {
-    // Check for "Worker does not exist" error
-    if (result.stderr.includes("does not exist") || result.stderr.includes("10007")) {
-      return { exists: false };
-    }
-    // Some other error
-    return { exists: false };
-  }
-
-  // Worker exists — try to get the D1 binding from the latest version
-  try {
-    const versions = JSON.parse(result.stdout) as WorkerVersionInfo[];
-    if (versions.length === 0) {
-      return { exists: true }; // Exists but no versions? Weird but handle it
-    }
-
-    // Get the latest version's bindings
-    const latestVersion = versions[0];
-    const d1Bindings = latestVersion.metadata?.bindings?.d1_databases;
-    if (d1Bindings && d1Bindings.length > 0) {
-      return { exists: true, databaseId: d1Bindings[0].id };
-    }
-  } catch {
-    // JSON parse failed, but worker exists
-  }
-
-  return { exists: true };
-}
-
-/**
- * Find the keyflare-db D1 database ID from the list of databases.
- */
-function findKeyflareDbId(authEnv: Record<string, string>): string | undefined {
-  const result = wrangler(["d1", "list", "--json"], authEnv, undefined, {
-    ignoreError: true,
-  });
-
-  if (result.status !== 0) {
-    return undefined;
+    debug("secret list failed (worker likely not created yet)");
+    return false;
   }
 
   try {
-    const dbs = JSON.parse(result.stdout) as Array<{
-      uuid: string;
-      name: string;
-    }>;
-    const keyflareDb = dbs.find((db) => db.name === "keyflare-db");
-    return keyflareDb?.uuid;
+    const secrets = JSON.parse(result.stdout) as Array<{ name?: string }>;
+    const hasSecret = secrets.some((secret) => secret.name === "MASTER_KEY");
+    debug("secret list parsed: has MASTER_KEY=%s", hasSecret);
+    return hasSecret;
   } catch {
-    return undefined;
+    const hasSecret = result.stdout.includes("MASTER_KEY");
+    debug("secret list json parse failed; fallback scan has MASTER_KEY=%s", hasSecret);
+    return hasSecret;
   }
 }
 
 // ─── kfl init (remote deploy) ─────────────────────────────────
 
 export async function runInit(options: { force?: boolean; masterKey?: string }) {
+  debug("runInit called force=%s masterKeyProvided=%s", Boolean(options.force), Boolean(options.masterKey));
   log(bold("\n🔥 Keyflare — Initial Setup\n"));
 
   // Validate custom master key if provided
@@ -244,6 +217,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
       process.exit(1);
     }
     customMasterKey = options.masterKey.trim();
+    debug("custom master key accepted (%s)", redact(customMasterKey));
     log(dim("Using custom master key provided via --masterkey flag\n"));
   }
 
@@ -255,6 +229,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   try {
     const auth = await resolveCloudflareAuth();
     authEnv = auth.env;
+    debug("auth resolved via method=%s", auth.method);
   } catch (err: any) {
     error(`Authentication failed: ${err.message}`);
     process.exit(1);
@@ -266,217 +241,21 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     const whoami = wrangler(["whoami"], authEnv);
     const accountMatch = whoami.stdout.match(/Account Name:\s+(.+)/);
     const accountName = accountMatch?.[1]?.trim() ?? "your account";
+    debug("authenticated account=%s", accountName);
     verifySpinner.succeed(`Authenticated as: ${bold(accountName)}`);
   } catch {
     verifySpinner.fail("Could not verify Cloudflare credentials");
     process.exit(1);
   }
 
-  // ── Step 2: Check if worker already exists (update flow)
-  const checkSpinner = ora("Checking for existing Keyflare deployment...").start();
-  const workerStatus = checkWorkerExists(authEnv);
-
-  if (workerStatus.exists) {
-    checkSpinner.warn("Found existing Keyflare worker deployment!");
-
-    // Try to find the D1 database ID
-    const databaseId = workerStatus.databaseId ?? findKeyflareDbId(authEnv);
-
-    if (!databaseId) {
-      warn("Could not determine the D1 database ID for the existing deployment.");
-      error("Aborting. Please manually delete the worker or use a different Cloudflare account.");
-      process.exit(1);
-    }
-
-    log("");
-    warn("An existing Keyflare deployment was found:");
-    log(`  Worker: ${bold("keyflare")}`);
-    log(`  D1 Database: ${dim(databaseId)}`);
-    log("");
-
-    const shouldUpdate = await confirm({
-      message: "Do you want to UPDATE the existing deployment?",
-      default: false,
-    });
-
-    if (!shouldUpdate) {
-      log("");
-      error("kfl init aborted.");
-      log("");
-      log("To initialize a fresh Keyflare deployment, you need to either:");
-      log(`  1. Delete the existing worker: ${dim("wrangler delete keyflare")}`);
-      log(`  2. Use a different Cloudflare account`);
-      log("");
-      log("Note: Deleting the worker does NOT delete the D1 database.");
-      log(`      To also delete the database: ${dim("wrangler d1 delete keyflare-db")}`);
-      process.exit(1);
-    }
-
-    // ── UPDATE FLOW ────────────────────────────────────────────
-    log("");
-    log(bold("Updating existing Keyflare deployment...\n"));
-
-    // Warn if user provided --masterkey during update (it will be ignored)
-    if (customMasterKey) {
-      warn(
-        "Note: --masterkey is ignored during updates. The existing master key will be preserved."
-      );
-      log("");
-    }
-
-    // Patch wrangler.jsonc with the existing database ID
-    const serverDir = path.resolve(
-      new URL(".", import.meta.url).pathname,
-      "../../server"
-    );
-    const wranglerConfigPath = path.join(serverDir, "wrangler.jsonc");
-
-    const jsoncContent = `{
-  "name": "keyflare",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-12-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "keyflare-db",
-      "database_id": "${databaseId}",
-      "migrations_dir": "migrations"
-    }
-  ]
-}
-`;
-    fs.writeFileSync(wranglerConfigPath, jsoncContent, "utf8");
-    success("Updated wrangler.jsonc with D1 database binding");
-
-    // Deploy new worker version
-    const deploySpinner = ora("Deploying updated Keyflare Worker...").start();
-    let workerUrl: string;
-    try {
-      const deployOutput = wrangler(["deploy"], authEnv, serverDir);
-      const urlMatch = deployOutput.stdout.match(/https:\/\/[\w.-]+\.workers\.dev/);
-      workerUrl = urlMatch?.[0] ?? "";
-      deploySpinner.succeed(
-        `Worker updated${workerUrl ? `: ${bold(workerUrl)}` : ""}`
-      );
-    } catch (err: any) {
-      deploySpinner.fail(`Worker deployment failed: ${err.message}`);
-      process.exit(1);
-    }
-
-    // Run migrations (may be no-op if schema is already up to date)
-    const migrateSpinner = ora("Running database migrations...").start();
-    try {
-      wrangler(
-        ["d1", "migrations", "apply", "keyflare-db", "--remote"],
-        authEnv,
-        serverDir
-      );
-      migrateSpinner.succeed("Database migrations applied");
-    } catch (err: any) {
-      // Check if it's just "already applied" error
-      if (err.message.includes("already been applied") || err.message.includes("no migrations")) {
-        migrateSpinner.succeed("Database schema already up to date");
-      } else {
-        migrateSpinner.fail(`Migrations failed: ${err.message}`);
-        process.exit(1);
-      }
-    }
-
-    // Update config with the API URL (in case it changed)
-    const apiUrl = workerUrl || `https://keyflare.workers.dev`;
-    const existingConfig = readConfig();
-    writeConfig({ apiUrl, project: existingConfig.project, environment: existingConfig.environment });
-
-    log("");
-    success(bold("✓ Keyflare updated successfully!"));
-    log("");
-    log(dim(`API URL: ${apiUrl}`));
-    log(dim(`Config:  ~/.config/keyflare/\n`));
-    return;
-  }
-
-  checkSpinner.succeed("No existing Keyflare deployment found");
-
-  // ── FRESH INSTALL FLOW ──────────────────────────────────────
-  log("");
-  log("Setting up a fresh Keyflare deployment...\n");
-
-  // ── Step 3: Create D1 database
-  const dbSpinner = ora("Creating D1 database: keyflare-db...").start();
-  let databaseId: string;
-  try {
-    const output = wrangler(["d1", "create", "keyflare-db"], authEnv);
-    const match = output.stdout.match(/database_id\s*=\s*"?([a-f0-9-]{36})"?/);
-    if (!match) {
-      throw new Error(`Could not parse database_id from output:\n${output.stdout}`);
-    }
-    databaseId = match[1];
-    dbSpinner.succeed(`Created D1 database: keyflare-db (id: ${dim(databaseId)})`);
-  } catch (err: any) {
-    // Database might already exist — try to find it
-    dbSpinner.text = "Database may already exist, looking it up...";
-    try {
-      const listOutput = wrangler(["d1", "list"], authEnv);
-      const lines = listOutput.stdout.split("\n");
-      const dbLine = lines.find((l) => l.includes("keyflare-db"));
-      if (!dbLine) throw new Error("keyflare-db not found in list");
-      const uuidMatch = dbLine.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/);
-      if (!uuidMatch) throw new Error("Could not parse database_id from list");
-      databaseId = uuidMatch[1];
-      dbSpinner.succeed(
-        `Using existing D1 database: keyflare-db (id: ${dim(databaseId)})`
-      );
-    } catch {
-      dbSpinner.fail(`D1 database creation failed: ${err.message}`);
-      process.exit(1);
-    }
-  }
-
-  // ── Step 4: Patch wrangler.jsonc with real database_id
-  const serverDir = path.resolve(
-    new URL(".", import.meta.url).pathname,
-    "../../server"
-  );
-  const wranglerConfigPath = path.join(serverDir, "wrangler.jsonc");
-
-  const jsoncContent = `{
-  "name": "keyflare",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-12-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "keyflare-db",
-      "database_id": "${databaseId}",
-      "migrations_dir": "migrations"
-    }
-  ]
-}
-`;
-  fs.writeFileSync(wranglerConfigPath, jsoncContent, "utf8");
-  success("Updated wrangler.jsonc with D1 database binding");
-
-  // ── Step 5: Generate or use master key
-  const masterKey = customMasterKey ?? generateMasterKey();
-
-  // Show master key and require confirmation (only if auto-generated)
-  if (!customMasterKey) {
-    warn(
-      `\n⚠️  MASTER KEY — Save this somewhere safe. It cannot be recovered!\n`
-    );
-    log(bold(`  ${masterKey}\n`));
-    await confirm({ message: "I have saved the master key", default: false });
-  }
-
-  // ── Step 6: Deploy Worker
+  // ── Step 2: Deploy worker (idempotent)
   const deploySpinner = ora("Deploying Keyflare Worker...").start();
-  let workerUrl: string;
+  let workerUrl = "";
   try {
-    const deployOutput = wrangler(["deploy"], authEnv, serverDir);
+    const deployOutput = wrangler(["deploy"], authEnv, serverDir());
     const urlMatch = deployOutput.stdout.match(/https:\/\/[\w.-]+\.workers\.dev/);
     workerUrl = urlMatch?.[0] ?? "";
+    debug("deploy completed workerUrl=%s", workerUrl || "<not parsed>");
     deploySpinner.succeed(
       `Worker deployed${workerUrl ? `: ${bold(workerUrl)}` : ""}`
     );
@@ -485,86 +264,127 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     process.exit(1);
   }
 
-  // ── Step 7: Push MASTER_KEY as Worker secret
-  const secretSpinner = ora("Pushing master key to Worker secrets...").start();
-  try {
-    const result = spawnSync(
-      "npx",
-      ["wrangler", "secret", "put", "MASTER_KEY"],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        cwd: serverDir,
-        input: masterKey + "\n",
-        env: { ...process.env, ...authEnv },
-      }
-    );
-    if (result.status !== 0) {
-      throw new Error(result.stderr?.toString() ?? "unknown error");
+  // ── Step 3: Ensure MASTER_KEY exists (never overwrite)
+  const checkSecretSpinner = ora("Checking Worker secrets...").start();
+  const hasExistingMasterKey = workerHasMasterKeySecret(authEnv);
+  checkSecretSpinner.succeed(
+    hasExistingMasterKey
+      ? "Found existing MASTER_KEY secret"
+      : "No MASTER_KEY secret found"
+  );
+
+  let masterKeyToDisplay: string | undefined;
+  if (hasExistingMasterKey) {
+    if (customMasterKey) {
+      warn(
+        "MASTER_KEY already exists on the worker. --masterkey was ignored to avoid overriding it."
+      );
     }
-    secretSpinner.succeed("Master key stored as Worker secret");
-  } catch (err: any) {
-    secretSpinner.fail(`Failed to push master key: ${err.message}`);
-    process.exit(1);
+  } else {
+    const masterKey = customMasterKey ?? generateMasterKey();
+    debug("generated new master key (%s)", redact(masterKey));
+    if (!customMasterKey) {
+      warn(
+        `\n⚠️  MASTER KEY — Save this somewhere safe. It cannot be recovered!\n`
+      );
+      log(bold(`  ${masterKey}\n`));
+      await confirm({ message: "I have saved the master key", default: false });
+    }
+
+    const secretSpinner = ora("Pushing master key to Worker secrets...").start();
+    try {
+      const result = spawnSync(
+        "npx",
+        ["wrangler", "secret", "put", "MASTER_KEY"],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+          cwd: serverDir(),
+          input: masterKey + "\n",
+          env: { ...process.env, ...authEnv },
+        }
+      );
+      if (result.status !== 0) {
+        throw new Error(result.stderr?.toString() ?? "unknown error");
+      }
+      debug("MASTER_KEY secret stored");
+      secretSpinner.succeed("Master key stored as Worker secret");
+      masterKeyToDisplay = masterKey;
+    } catch (err: any) {
+      secretSpinner.fail(`Failed to push master key: ${err.message}`);
+      process.exit(1);
+    }
   }
 
-  // ── Step 8: Run D1 migrations
+  // ── Step 4: Run D1 migrations
   const migrateSpinner = ora("Running database migrations...").start();
   try {
-    wrangler(
-      ["d1", "migrations", "apply", "keyflare-db", "--remote"],
-      authEnv,
-      serverDir
-    );
-    migrateSpinner.succeed("Database schema initialized");
+    wrangler(["d1", "migrations", "apply", "DB_BINDING", "--remote"], authEnv, serverDir());
+    debug("migrations apply completed");
+    migrateSpinner.succeed("Database migrations applied");
   } catch (err: any) {
-    migrateSpinner.fail(`Migrations failed: ${err.message}`);
-    process.exit(1);
+    if (err.message.includes("already been applied") || err.message.includes("No migrations to apply")) {
+      migrateSpinner.succeed("Database schema already up to date");
+    } else {
+      migrateSpinner.fail(`Migrations failed: ${err.message}`);
+      process.exit(1);
+    }
   }
 
-  // ── Step 9: Bootstrap — create first user key
+  // ── Step 5: Bootstrap — create first user key (idempotent)
   const bootstrapSpinner = ora("Creating root API key...").start();
   const apiUrl = workerUrl || `https://keyflare.workers.dev`;
+  debug("bootstrap using apiUrl=%s", apiUrl);
 
   // Temporarily set the API URL to bootstrap
   process.env.KEYFLARE_API_URL = apiUrl;
 
-  let rootKey: string;
+  let rootKey: string | undefined;
   try {
     const data = await api.post<BootstrapResponse>("/bootstrap");
     rootKey = data.key;
+    debug("bootstrap created root key (%s)", redact(rootKey));
     bootstrapSpinner.succeed("Root API key created");
   } catch (err: any) {
     if (err instanceof KeyflareApiError && err.code === "CONFLICT") {
       bootstrapSpinner.warn(
         "Bootstrap already done — a root key already exists"
       );
-      warn(
-        "If you lost your root key, create a new one via an existing user key.\n"
-      );
-      process.exit(0);
+      warn("If you lost your root key, create a new one via an existing user key.");
+    } else {
+      bootstrapSpinner.fail(`Bootstrap failed: ${err.message}`);
+      process.exit(1);
     }
-    bootstrapSpinner.fail(`Bootstrap failed: ${err.message}`);
-    process.exit(1);
   }
 
-  // ── Step 10: Save config
-  writeConfig({ apiUrl });
-  writeApiKey(rootKey);
+  // ── Step 6: Save config
+  const existingConfig = readConfig();
+  writeConfig({ apiUrl, project: existingConfig.project, environment: existingConfig.environment });
+  if (rootKey) {
+    writeApiKey(rootKey);
+  }
+  debug("config written; rootKeySaved=%s", Boolean(rootKey));
 
-  log(
-    `\n${bold("✓ Setup complete!")}\n\nYour root API key ${dim("(shown once — already saved to ~/.config/keyflare/)")}: \n\n  ${bold(rootKey)}\n`
-  );
+  log("");
+  success(bold("✓ Keyflare deployed successfully!"));
+  if (rootKey) {
+    log(
+      `\nYour root API key ${dim("(shown once — already saved to ~/.config/keyflare/)")}:\n\n  ${bold(rootKey)}\n`
+    );
+  }
 
-  // Show master key one more time at the end (for fresh installs)
-  warn(bold("⚠️  IMPORTANT: Your master key (save this securely!)\n"));
-  log(`  ${bold(masterKey)}\n`);
-  log(
-    dim(
-      "This key is shown ONCE. Store it safely — if lost, all encrypted data\n" +
-        "in D1 becomes permanently unrecoverable. If compromised, re-encrypt\n" +
-        "everything with a new key.\n"
-    )
-  );
+  if (masterKeyToDisplay) {
+    warn(bold("⚠️  IMPORTANT: Your master key (save this securely!)\n"));
+    log(`  ${bold(masterKeyToDisplay)}\n`);
+    log(
+      dim(
+        "This key is shown ONCE. Store it safely — if lost, all encrypted data\n" +
+          "in D1 becomes permanently unrecoverable. If compromised, re-encrypt\n" +
+          "everything with a new key.\n"
+      )
+    );
+  } else {
+    log(dim("MASTER_KEY already exists on the worker and was left unchanged.\n"));
+  }
 
   log(dim(`API URL: ${apiUrl}`));
   log(dim(`Config:  ~/.config/keyflare/\n`));
@@ -575,5 +395,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
 function generateMasterKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return Buffer.from(bytes).toString("base64");
+  const key = Buffer.from(bytes).toString("base64");
+  debug("master key generated (%s)", redact(key));
+  return key;
 }

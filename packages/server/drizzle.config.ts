@@ -42,8 +42,8 @@ function findLocalD1(): string {
 //   CLOUDFLARE_D1_DATABASE_ID=<your-database-id>
 //   CLOUDFLARE_D1_TOKEN=<api-token-with-D1-read-permissions>
 //
-// The database_id is printed during `kfl init`, or find it in the Cloudflare
-// dashboard under Workers & Pages → D1 → keyflare-db.
+// Find the production database ID in the Cloudflare dashboard under
+// Workers & Pages → D1 → keyflare.
 
 const isRemote =
   process.env.DRIZZLE_REMOTE === "true" &&

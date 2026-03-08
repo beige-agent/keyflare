@@ -32,14 +32,12 @@ You will be prompted to choose:
 **What `kfl init` does:**
 
 1. Verifies Cloudflare credentials (`wrangler whoami`)
-2. Creates D1 database `keyflare-db` (or finds it if it already exists)
-3. Patches `packages/server/wrangler.jsonc` with the real `database_id`
-4. Generates a 256-bit `MASTER_KEY` — **displayed once, save it now**
-5. Deploys the Worker via `wrangler deploy`
-6. Pushes `MASTER_KEY` as a Worker secret via `wrangler secret put`
-7. Applies Drizzle migrations via `wrangler d1 migrations apply --remote`
-8. Calls `POST /bootstrap` to create the first root user key
-9. Saves the API URL and root key to `~/.config/keyflare/`
+2. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from config)
+3. Checks if `MASTER_KEY` exists on the worker
+4. If missing, generates a 256-bit `MASTER_KEY` and stores it as a Worker secret
+5. Applies Drizzle migrations via `wrangler d1 migrations apply DB_BINDING --remote`
+6. Calls `POST /bootstrap` to create the first root user key (idempotent)
+7. Saves the API URL and root key to `~/.config/keyflare/`
 
 ```
 $ kfl init
@@ -50,8 +48,8 @@ $ kfl init
 ❯ Browser (OAuth)
 
 ✓ Authenticated as: my-account
-✓ Created D1 database: keyflare-db (id: abc-123-...)
-✓ Updated wrangler.jsonc with D1 database binding
+✓ Worker deployed: https://keyflare.my-account.workers.dev
+✓ No MASTER_KEY secret found
 
 ⚠ MASTER KEY — Save this somewhere safe. It cannot be recovered!
 
@@ -61,10 +59,10 @@ $ kfl init
 
 ✓ Worker deployed: https://keyflare.my-account.workers.dev
 ✓ Master key stored as Worker secret
-✓ Database schema initialized
+✓ Database migrations applied
 ✓ Root API key created
 
-✓ Setup complete!
+✓ Keyflare deployed successfully!
 
 Your root API key (already saved to ~/.config/keyflare/):
 
@@ -82,26 +80,19 @@ If you prefer full control:
 wrangler login
 # or: export CLOUDFLARE_API_TOKEN=<token>
 
-# 2. Create D1 database
+# 2. Deploy the Worker (Wrangler provisions D1 from wrangler.jsonc)
 cd packages/server
-npx wrangler d1 create keyflare-db
-# Note the database_id in the output
-
-# 3. Update wrangler.jsonc
-# Set database_id in d1_databases[0] to "<id-from-step-2>"
-
-# 4. Deploy the Worker
 npx wrangler deploy
 
-# 5. Generate + store MASTER_KEY
+# 3. Generate + store MASTER_KEY
 MASTER_KEY=$(openssl rand -base64 32)
 echo "SAVE THIS: $MASTER_KEY"
 echo "$MASTER_KEY" | npx wrangler secret put MASTER_KEY
 
-# 6. Apply migrations
+# 4. Apply migrations
 pnpm --filter @keyflare/server db:migrate:remote
 
-# 7. Bootstrap
+# 5. Bootstrap
 curl -X POST https://keyflare.<account>.workers.dev/bootstrap
 # Save the returned key!
 ```
@@ -130,7 +121,7 @@ curl -X POST https://keyflare.<account>.workers.dev/bootstrap
             │          │          │
             │  ┌───────▼───────┐  │
             │  │   D1 (SQLite) │  │  ← Single database, encrypted data
-            │  │   keyflare-db │  │
+            │  │    keyflare   │  │
             │  └───────────────┘  │
             │                     │
             └─────────────────────┘
@@ -148,23 +139,14 @@ When you update the Keyflare CLI package (`npm install -g @keyflare/cli` or simi
 kfl init
 ```
 
-Keyflare will detect the existing deployment and prompt you:
+`kfl init` is idempotent. Re-running it on an existing deployment:
 
-```
-⚠ Found existing Keyflare worker deployment!
+- redeploys the Worker,
+- keeps the existing `MASTER_KEY` secret unchanged,
+- runs pending migrations,
+- and safely re-calls bootstrap (no-op if already initialized).
 
-  Worker: keyflare
-  D1 Database: abc-123-def-456...
-
-? Do you want to UPDATE the existing deployment? (y/N)
-```
-
-- **Yes** — Deploys the new worker version and runs any pending database migrations. Your MASTER_KEY and all data are preserved.
-- **No** — Aborts the init process. You'll need to either:
-  - Delete the existing worker: `wrangler delete keyflare`
-  - Use a different Cloudflare account
-
-> **Note:** Deleting the worker does NOT delete the D1 database. To also delete the database: `wrangler d1 delete keyflare-db`
+> **Note:** Deleting the worker does NOT delete the D1 database. To also delete the database: `wrangler d1 delete keyflare`
 
 ### Manual Update
 
@@ -235,7 +217,7 @@ Cloudflare automatically backs up D1. You can also export manually:
 
 ```bash
 cd packages/server
-npx wrangler d1 export keyflare-db --output backup.sql
+npx wrangler d1 export keyflare --output backup.sql
 ```
 
 ### Master Key Backup

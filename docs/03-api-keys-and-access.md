@@ -45,8 +45,8 @@ When you first deploy Keyflare, there are no API keys. The `kfl init` command ha
      │  (for wrangler operations)      │                             │
      │────────────────────────────────>│                             │
      │                                 │                             │
-     │                                 │  3. Create D1 database      │
-     │                                 │     (wrangler d1 create)    │
+     │                                 │  3. Deploy Worker + D1      │
+     │                                 │     (wrangler deploy)       │
      │                                 │                             │
      │                                 │  4. Generate MASTER_KEY     │
      │                                 │     (256-bit random)        │
@@ -55,8 +55,8 @@ When you first deploy Keyflare, there are no API keys. The `kfl init` command ha
      │                                 │     Worker secrets          │
      │                                 │     (wrangler secret put)   │
      │                                 │                             │
-     │                                 │  6. Deploy Worker           │
-     │                                 │     (wrangler deploy)       │
+     │                                 │  6. Ensure MASTER_KEY       │
+     │                                 │     not overwritten         │
      │                                 │                             │
      │                                 │  7. Run D1 migrations       │
      │                                 │     (create tables)         │

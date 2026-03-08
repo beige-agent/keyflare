@@ -30,8 +30,13 @@ import {
 } from "./commands/keys.js";
 import { readConfig } from "./config.js";
 import { error } from "./output/log.js";
+import { makeDebug } from "./debug.js";
 
 const program = new Command();
+const debug = makeDebug("index");
+
+debug("argv=%o", process.argv.slice(2));
+debug("DEBUG=%s", process.env.DEBUG ?? "<unset>");
 
 program
   .name("kfl")
@@ -333,6 +338,7 @@ function collect(val: string, prev: string[]): string[] {
 }
 
 function handleError(err: unknown) {
+  debug("command failed: %o", err);
   if (err instanceof Error) {
     error(err.message);
   } else {

@@ -18,9 +18,11 @@ import ora from "ora";
 import type { BootstrapResponse } from "@keyflare/shared";
 import { api, KeyflareApiError } from "../api/client.js";
 import { writeConfig, writeApiKey } from "../config.js";
+import { makeDebug, redact } from "../debug.js";
 import { log, warn, bold, dim } from "../output/log.js";
 
 const LOCAL_API_URL = "http://localhost:8787";
+const debug = makeDebug("dev");
 
 /** Path to packages/server relative to this compiled CLI file */
 function serverDir(): string {
@@ -28,7 +30,9 @@ function serverDir(): string {
   const here = new URL(".", import.meta.url).pathname;
   // When built: packages/cli/dist/commands/dev.js → ../../server
   // When running via tsx: packages/cli/src/commands/dev.ts → ../../server
-  return path.resolve(here, "../../../server");
+  const dir = path.resolve(here, "../../../server");
+  debug("resolved serverDir=%s", dir);
+  return dir;
 }
 
 function devVarsPath(): string {
@@ -46,14 +50,19 @@ function generateLocalMasterKey(): string {
  * Returns the key that was written.
  */
 function ensureDevVars(force = false): string {
+  debug("ensureDevVars force=%s", force);
   const devVars = devVarsPath();
   if (!force && fs.existsSync(devVars)) {
     // Already exists — extract the key
     const existing = fs.readFileSync(devVars, "utf8");
     const match = existing.match(/^MASTER_KEY=(.+)$/m);
-    if (match) return match[1].trim();
+    if (match) {
+      debug("reusing existing local master key (%s)", redact(match[1].trim()));
+      return match[1].trim();
+    }
   }
   const key = generateLocalMasterKey();
+  debug("generated local master key (%s)", redact(key));
   fs.writeFileSync(devVars, `MASTER_KEY=${key}\n`, "utf8");
   return key;
 }
@@ -62,9 +71,10 @@ function ensureDevVars(force = false): string {
  * Apply D1 migrations locally using wrangler.
  */
 function applyLocalMigrations() {
+  debug("applying local migrations via DB_BINDING");
   const result = spawnSync(
     "npx",
-    ["wrangler", "d1", "migrations", "apply", "keyflare-db", "--local"],
+    ["wrangler", "d1", "migrations", "apply", "DB_BINDING", "--local"],
     {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: serverDir(),
@@ -74,6 +84,7 @@ function applyLocalMigrations() {
   if (result.status !== 0) {
     throw new Error(result.stderr?.toString() ?? "migration failed");
   }
+  debug("local migrations applied");
 }
 
 /**
@@ -82,6 +93,7 @@ function applyLocalMigrations() {
  */
 export async function runDevServer(options: { port?: number } = {}) {
   const port = options.port ?? 8787;
+  debug("runDevServer port=%d", port);
 
   // Make sure .dev.vars exists
   ensureDevVars();
@@ -119,6 +131,7 @@ export async function runDevServer(options: { port?: number } = {}) {
  * 4. Calls /bootstrap → saves credentials pointing at localhost
  */
 export async function runDevInit(options: { force?: boolean } = {}) {
+  debug("runDevInit force=%s", Boolean(options.force));
   log(bold("\n🔥 Keyflare Local Setup\n"));
   log(
     dim(
@@ -158,6 +171,7 @@ export async function runDevInit(options: { force?: boolean } = {}) {
   );
 
   // Wait until ready
+  debug("waiting for local server to become healthy on port=%d", port);
   await waitForServer(port, 15_000);
   serverSpinner.succeed(`Local server ready at ${bold(LOCAL_API_URL)}`);
 
@@ -169,6 +183,7 @@ export async function runDevInit(options: { force?: boolean } = {}) {
   try {
     const data = await api.post<BootstrapResponse>("/bootstrap");
     rootKey = data.key;
+    debug("local bootstrap created root key (%s)", redact(rootKey));
     bootstrapSpinner.succeed("Root API key created");
   } catch (err: any) {
     if (err instanceof KeyflareApiError && err.code === "CONFLICT") {
@@ -190,6 +205,7 @@ export async function runDevInit(options: { force?: boolean } = {}) {
   // ── Step 5: Save config
   writeConfig({ apiUrl: LOCAL_API_URL });
   writeApiKey(rootKey);
+  debug("local config and api key written");
 
   log(
     `\n${bold("✓ Local setup complete!")}\n\n` +
@@ -209,6 +225,7 @@ async function waitForServer(
   port: number,
   timeoutMs: number
 ): Promise<void> {
+  debug("waitForServer start port=%d timeoutMs=%d", port, timeoutMs);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {

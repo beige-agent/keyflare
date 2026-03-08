@@ -146,7 +146,7 @@ pnpm --filter @keyflare/server db:studio:remote
 # → https://local.drizzle.studio
 ```
 
-The `database_id` is logged during `kfl init` and is also visible in the Cloudflare dashboard under **Workers & Pages → D1 → keyflare-db**.
+The D1 database is visible in the Cloudflare dashboard under **Workers & Pages → D1 → keyflare**.
 
 > ⚠️ Remote Studio connects directly to production data. All values shown are AES-256-GCM ciphertext — unreadable without the MASTER_KEY. Use with care.
 
@@ -244,11 +244,11 @@ pnpm --filter @keyflare/shared lint
 cd packages/server && npx wrangler tail
 
 # Inspect the local D1 (dev server must be running)
-npx wrangler d1 execute keyflare-db --local \
+npx wrangler d1 execute keyflare --local \
   --command "SELECT id, key_prefix, type, revoked FROM api_keys"
 
 # Inspect production D1
-npx wrangler d1 execute keyflare-db --remote \
+npx wrangler d1 execute keyflare --remote \
   --command "SELECT id, key_prefix, type FROM api_keys"
 ```
 

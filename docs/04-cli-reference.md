@@ -19,7 +19,7 @@
 
 ### `kfl init`
 
-Bootstrap a new Keyflare deployment on your Cloudflare account, or update an existing deployment.
+Deploy (or redeploy) Keyflare to your Cloudflare account in an idempotent way.
 
 ```bash
 kfl init [--force] [--masterkey <key>]
@@ -29,7 +29,7 @@ kfl init [--force] [--masterkey <key>]
 
 | Flag | Description |
 |------|-------------|
-| `--force` | Re-run even if already initialised |
+| `--force` | Reserved for compatibility (currently no-op) |
 | `--masterkey <key>` | Custom master key (base64-encoded 256-bit). See [Master Key Format](#master-key-format) below. |
 
 **Authentication options** — prompted interactively on first run:
@@ -63,41 +63,20 @@ openssl rand -base64 32
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-> **Important:** The `--masterkey` flag is **ignored during updates**. When updating an existing deployment, the master key is always preserved to prevent data loss.
+> **Important:** `kfl init` never overrides an existing `MASTER_KEY` secret. If the secret already exists, `--masterkey` is ignored to prevent data loss.
 
-#### Fresh Install Flow
+#### Deploy Flow (first run and re-runs)
 
-When no Keyflare deployment exists:
+`kfl init` always runs the same flow:
 
 1. Prompts for Cloudflare auth method (OAuth browser or API token)
 2. Verifies credentials (`wrangler whoami`)
-3. Creates D1 database `keyflare-db` (or finds it if already exists)
-4. Patches `packages/server/wrangler.jsonc` with the real `database_id`
-5. Generates 256-bit `MASTER_KEY` (or uses the one from `--masterkey`)
-6. Deploys the Worker via `wrangler deploy`
-7. Pushes `MASTER_KEY` as a Worker secret
-8. Applies Drizzle migrations (`wrangler d1 migrations apply --remote`)
-9. Calls `POST /bootstrap` to create the first root user key
-10. Saves API URL and root key to `~/.config/keyflare/`
-11. **Displays the master key one final time** — this is your only chance to save it!
-
-#### Update Flow
-
-When a Keyflare deployment already exists, `kfl init` detects it and prompts:
-
-```
-⚠ Found existing Keyflare worker deployment!
-
-  Worker: keyflare
-  D1 Database: abc-123-def-456...
-
-? Do you want to UPDATE the existing deployment? (y/N)
-```
-
-- **Yes** — Deploys the new worker version and runs any pending database migrations. **Your MASTER_KEY and all data are preserved.** The `--masterkey` flag is ignored.
-- **No** — Aborts with instructions to either delete the existing worker (`wrangler delete keyflare`) or use a different Cloudflare account.
-
-> **Critical:** During updates, the existing master key is **never overridden**. This prevents data loss — overriding the master key would make all existing encrypted data permanently unrecoverable.
+3. Deploys the Worker via `wrangler deploy` (Wrangler auto-provisions D1 from `wrangler.jsonc`)
+4. Checks whether `MASTER_KEY` already exists on the worker
+5. If missing, generates 256-bit `MASTER_KEY` (or uses `--masterkey`) and stores it via `wrangler secret put`
+6. Applies Drizzle migrations (`wrangler d1 migrations apply DB_BINDING --remote`)
+7. Calls `POST /bootstrap` (idempotent: conflict means already initialized)
+8. Saves API URL (and root key when newly created) to `~/.config/keyflare/`
 
 ```
 $ kfl init
@@ -109,8 +88,8 @@ $ kfl init
   API Token — paste a Cloudflare API token
 
 ✓ Authenticated as: my-account
-✓ Created D1 database: keyflare-db (id: abc123...)
-✓ Updated wrangler.jsonc with D1 database binding
+✓ Worker deployed: https://keyflare.my-account.workers.dev
+✓ No MASTER_KEY secret found
 
 ⚠ MASTER KEY — Save this somewhere safe. It cannot be recovered!
 
@@ -120,10 +99,10 @@ $ kfl init
 
 ✓ Worker deployed: https://keyflare.my-account.workers.dev
 ✓ Master key stored as Worker secret
-✓ Database schema initialized
+✓ Database migrations applied
 ✓ Root API key created
 
-✓ Setup complete!
+✓ Keyflare deployed successfully!
 
 Your root API key (shown once — already saved to ~/.config/keyflare/):
 
@@ -158,6 +137,8 @@ Using custom master key provided via --masterkey flag
 
 ? How would you like to authenticate with Cloudflare? ...
 ```
+
+If `MASTER_KEY` already exists on the worker, the provided key is ignored and the existing key remains unchanged.
 
 ---
 
@@ -671,6 +652,7 @@ kfl secrets set DB_URL=postgres://localhost --project my-api --config developmen
 | `KEYFLARE_PROJECT` | Default project (overrides config file) |
 | `KEYFLARE_CONFIG` | Default config/environment (overrides config file) |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token used by `kfl init` (skips auth prompt) |
+| `DEBUG` | Set to `keyflare` to enable CLI debug logs (for example: `DEBUG=keyflare kfl init`) |
 
 ## Exit Codes
 

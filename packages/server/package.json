@@ -14,8 +14,8 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio --port 4983",
     "db:studio:remote": "DRIZZLE_REMOTE=true drizzle-kit studio --port 4983",
-    "db:migrate:local": "wrangler d1 migrations apply keyflare-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply keyflare-db --remote",
+    "db:migrate:local": "wrangler d1 migrations apply DB_BINDING --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB_BINDING --remote",
     "deploy": "pnpm run db:migrations:apply && wrangler deploy",
     "db:migrations:apply": "wrangler d1 migrations apply DB_BINDING --remote",
     "cf-typegen": "wrangler types"

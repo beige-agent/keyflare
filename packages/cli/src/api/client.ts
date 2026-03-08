@@ -1,6 +1,9 @@
 import type { ApiResponse, ApiErrorResponse } from "@keyflare/shared";
 import { hc } from "hono/client";
 import { getApiUrl, readApiKey } from "../config.js";
+import { makeDebug, redact } from "../debug.js";
+
+const debug = makeDebug("api");
 
 export class KeyflareApiError extends Error {
   constructor(
@@ -14,7 +17,9 @@ export class KeyflareApiError extends Error {
 }
 
 function baseUrl(): string {
-  return getApiUrl().replace(/\/$/, "") + "/";
+  const url = getApiUrl().replace(/\/$/, "") + "/";
+  debug("base URL resolved: %s", url);
+  return url;
 }
 
 /** Explicit RPC client shape so we get typed usage without deep AppType inference. */
@@ -57,6 +62,7 @@ interface KeyflareRpcClient {
 
 function client(apiKey?: string): KeyflareRpcClient {
   const key = apiKey ?? readApiKey();
+  debug("creating rpc client with apiKey=%s", redact(key));
   return hc(baseUrl(), {
     headers: key ? { Authorization: `Bearer ${key}` } : {},
   }) as unknown as KeyflareRpcClient;
@@ -64,6 +70,7 @@ function client(apiKey?: string): KeyflareRpcClient {
 
 async function unwrap<T>(resPromise: Promise<Response>): Promise<T> {
   const res = await resPromise;
+  debug("response status=%d", res.status);
   const json = (await res.json()) as ApiResponse<T>;
   if (!res.ok || !("ok" in json) || !json.ok) {
     const err = (json as ApiErrorResponse).error;
@@ -81,6 +88,7 @@ async function unwrap<T>(resPromise: Promise<Response>): Promise<T> {
  */
 export const api = {
   get: <T>(path: string, apiKey?: string): Promise<T> => {
+    debug("GET %s", path);
     const c = client(apiKey);
     if (path === "/keys") return unwrap<T>(c.keys.$get());
     if (path === "/projects") return unwrap<T>(c.projects.$get());
@@ -119,6 +127,7 @@ export const api = {
   },
 
   post: <T>(path: string, body?: unknown, apiKey?: string): Promise<T> => {
+    debug("POST %s bodyKeys=%o", path, body && typeof body === "object" ? Object.keys(body as Record<string, unknown>) : []);
     const c = client(apiKey);
     if (path === "/bootstrap") return unwrap<T>(c.bootstrap.$post());
     if (path === "/keys")
@@ -157,6 +166,7 @@ export const api = {
   },
 
   put: <T>(path: string, body: unknown, apiKey?: string): Promise<T> => {
+    debug("PUT %s bodyType=%s", path, typeof body);
     const c = client(apiKey);
     const keysPrefixMatch = path.match(/^\/keys\/([^/]+)$/);
     if (keysPrefixMatch) {
@@ -200,6 +210,7 @@ export const api = {
   },
 
   patch: <T>(path: string, body: unknown, apiKey?: string): Promise<T> => {
+    debug("PATCH %s bodyType=%s", path, typeof body);
     const c = client(apiKey);
     const secretsMatch = path.match(
       /^\/projects\/([^/]+)\/configs\/([^/]+)\/secrets$/
@@ -236,6 +247,7 @@ export const api = {
   },
 
   delete: <T>(path: string, apiKey?: string): Promise<T> => {
+    debug("DELETE %s", path);
     const c = client(apiKey);
     const keysPrefixMatch = path.match(/^\/keys\/([^/]+)$/);
     if (keysPrefixMatch) {

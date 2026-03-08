@@ -139,8 +139,8 @@ sequenceDiagram
     CLI->>CF: Verify token
     CF-->>CLI: ✓ Account confirmed
 
-    CLI->>CF: wrangler d1 create keyflare-db
-    CF-->>CLI: database_id: abc123
+    CLI->>CF: wrangler deploy (auto-provisions D1)
+    CF-->>CLI: ✓ Worker + D1 ready
 
     CLI->>CLI: Generate MASTER_KEY (256-bit random)
     CLI->>U: ⚠️ Save this master key!

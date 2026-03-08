@@ -56,11 +56,11 @@ To deploy manually:
 # Authenticate with Cloudflare
 wrangler login
 
-# Create the D1 database and note the database_id
-wrangler d1 create keyflare-db
+# Deploy the Worker (Wrangler auto-provisions D1 from wrangler.jsonc)
+wrangler deploy
 
-# Update wrangler.jsonc with your database_id, then run migrations
-wrangler d1 migrations apply keyflare-db --remote
+# Run migrations
+wrangler d1 migrations apply DB_BINDING --remote
 
 # Generate and push the master encryption key
 openssl rand -base64 32 | wrangler secret put MASTER_KEY
