@@ -4,7 +4,7 @@
   "description": "Keyflare CLI — kfl",
   "type": "module",
   "bin": {
-    "kfl": "./dist/index.js"
+    "kfl": "dist/index.js"
   },
   "files": [
     "dist"
