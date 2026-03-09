@@ -1,0 +1,237 @@
+---
+title: Development Guide
+description: How to contribute to Keyflare
+sidebar_position: 1
+---
+
+# Development Guide
+
+Learn how to set up a development environment and contribute to Keyflare.
+
+## Prerequisites
+
+| Requirement | Version |
+|-------------|---------|
+| Node.js | 20+ |
+| pnpm | 9+ |
+
+Install pnpm:
+```bash
+npm install -g pnpm
+# or
+corepack enable
+```
+
+A Cloudflare account is **only required for remote deployment**. Local development runs entirely offline via Miniflare.
+
+## Getting Started
+
+```bash
+# Clone the repo
+git clone https://github.com/keyflare/keyflare.git
+cd keyflare
+
+# Install dependencies and build CLI
+pnpm run setup
+```
+
+`pnpm run setup` runs `pnpm install` twice with a CLI build in between. This is necessary because pnpm links workspace bins during install — before any build scripts run — so `dist/index.js` must exist for the `kfl` bin to be linked correctly.
+
+### Running the CLI During Development
+
+```bash
+# Use pnpm kfl from the project root
+pnpm kfl init
+pnpm kfl projects list
+pnpm kfl secrets set KEY=value --project myapp --config production
+```
+
+## Project Structure
+
+```
+keyflare/
+├── packages/
+│   ├── server/    # Cloudflare Worker
+│   │   ├── src/
+│   │   │   ├── index.ts         # Hono app + routes
+│   │   │   ├── db/              # Drizzle schema + queries
+│   │   │   ├── middleware/      # Auth, validation
+│   │   │   └── lib/             # Crypto, utilities
+│   │   └── migrations/          # SQL migrations
+│   │
+│   ├── cli/       # CLI (kfl)
+│   │   └── src/
+│   │       ├── index.ts         # Entry point
+│   │       └── commands/        # Command handlers
+│   │
+│   └── shared/    # Shared types & utilities
+│       └── src/
+│           └── types.ts         # TypeScript types
+│
+├── docs/          # Documentation (Mintlify)
+└── package.json   # Root package
+```
+
+## Local Development
+
+The fastest way to get a local Keyflare instance running:
+
+```bash
+# One-time setup
+pnpm kfl dev init
+
+# Start the local server (separate terminal)
+pnpm kfl dev server
+# → Keyflare listening at http://localhost:8787
+
+# Point all kfl commands at local server
+export KEYFLARE_LOCAL=true
+export KEYFLARE_API_KEY=kfl_user_<key-from-dev-init>
+```
+
+### Manual Local Setup
+
+Alternative to `kfl dev init`:
+
+```bash
+# Copy example dev vars
+cp .dev.vars.example packages/server/.dev.vars
+
+# Apply migrations to local D1
+cd packages/server
+pnpm run db:migrate:local
+
+# Start the server
+pnpm run dev
+# → http://localhost:8787
+
+# Bootstrap
+curl -s -X POST http://localhost:8787/bootstrap | python3 -m json.tool
+# { "ok": true, "data": { "key": "kfl_user_..." } }
+```
+
+## Database Migrations
+
+The schema is defined in `packages/server/src/db/schema.ts`. **Never edit migration SQL files by hand** — always use drizzle-kit.
+
+```bash
+cd packages/server
+
+# 1. Edit src/db/schema.ts
+
+# 2. Generate the new migration SQL
+pnpm run db:generate
+# Creates migrations/XXXX_<name>.sql
+
+# 3a. Apply locally
+pnpm run db:migrate:local
+
+# 3b. Apply to production
+pnpm run db:migrate:remote
+```
+
+Generated migration files are committed to the repo and applied automatically in tests.
+
+## Drizzle Studio
+
+Browser-based GUI to inspect and edit the database.
+
+### Local
+
+```bash
+# Terminal 1 — keep dev server running
+pnpm run dev
+
+# Terminal 2 — open Studio
+pnpm run studio
+# → https://local.drizzle.studio
+```
+
+### Remote (Production)
+
+```bash
+export DRIZZLE_REMOTE=true
+export CLOUDFLARE_ACCOUNT_ID=<your-account-id>
+export CLOUDFLARE_D1_DATABASE_ID=<database-id>
+export CLOUDFLARE_D1_TOKEN=<api-token-with-D1-edit>
+
+pnpm --filter @keyflare/server db:studio:remote
+# → https://local.drizzle.studio
+```
+
+<Warning>
+  Remote Studio connects directly to production data. All values shown are AES-256-GCM ciphertext — unreadable without MASTER_KEY.
+</Warning>
+
+## Building
+
+```bash
+# Build all packages
+pnpm run build
+
+# Build individual packages
+pnpm --filter @keyflare/shared build
+pnpm --filter @keyflare/server build   # type-check only
+pnpm --filter @keyflare/cli build      # tsup → dist/index.js
+```
+
+## Type Checking
+
+```bash
+# All packages
+pnpm run typecheck
+
+# Individual packages
+pnpm --filter @keyflare/server typecheck
+pnpm --filter @keyflare/cli typecheck
+```
+
+Regenerate Worker types after changing `wrangler.jsonc`:
+```bash
+pnpm --filter @keyflare/server cf-typegen
+```
+
+## Linting
+
+```bash
+# All packages
+pnpm run lint
+
+# Individual packages
+pnpm --filter @keyflare/server lint
+pnpm --filter @keyflare/cli lint
+pnpm --filter @keyflare/shared lint
+```
+
+Linting uses [oxlint](https://oxc-project.github.io/docs/guide/usage/linter/) with the `typescript/no-floating-promises` rule enabled.
+
+## Debugging
+
+```bash
+# Real-time Worker logs (production)
+cd packages/server && npx wrangler tail
+
+# Inspect local D1
+npx wrangler d1 execute keyflare --local \
+  --command "SELECT id, key_prefix, type, revoked FROM api_keys"
+
+# Inspect production D1
+npx wrangler d1 execute keyflare --remote \
+  --command "SELECT id, key_prefix, type FROM api_keys"
+```
+
+<Note>
+  `label`, `scopes`, `key_encrypted`, and `value_encrypted` columns contain AES-256-GCM ciphertext — unreadable without MASTER_KEY.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Testing" href="/contributing/testing">
+    Learn about the test suite and how to write tests.
+  </Card>
+
+  <Card title="Architecture" href="/architecture/overview">
+    Understand how Keyflare works.
+  </Card>
+</CardGroup>

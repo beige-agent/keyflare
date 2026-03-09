@@ -1,0 +1,279 @@
+---
+title: CLI Reference
+description: Complete reference for the kfl CLI
+sidebar_position: 1
+---
+
+# CLI Reference (`kfl`)
+
+Complete reference for the Keyflare command-line interface.
+
+## Installation
+
+```bash
+npm install -g @keyflare/cli
+```
+
+Or use directly with npx:
+```bash
+npx @keyflare/cli <command>
+```
+
+## Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--api-url <url>` | Override API URL (default: from config) |
+| `--api-key <key>` | Override API key (default: from credentials file or `$KEYFLARE_API_KEY`) |
+| `--project <name>` | Override default project |
+| `--config <name>` | Override default environment |
+| `--help` | Show help |
+| `--version` | Show version |
+
+## Commands
+
+### `kfl init`
+
+Deploy or update Keyflare on your Cloudflare account.
+
+```bash
+kfl init [--force] [--masterkey <key>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Reserved for compatibility (currently no-op) |
+| `--masterkey <key>` | Custom master key (base64-encoded 256-bit) |
+
+**Authentication:**
+- Reuses existing Wrangler session when available
+- Falls back to `CLOUDFLARE_API_TOKEN` environment variable
+- Prompts for OAuth browser login or API token if neither available
+
+---
+
+### `kfl login`
+
+Log in to an existing Keyflare deployment.
+
+```bash
+kfl login
+```
+
+Interactive prompts for:
+1. Keyflare API URL
+2. API key
+
+Saves credentials to `~/.config/keyflare/`.
+
+---
+
+### `kfl projects`
+
+Manage projects.
+
+```bash
+# List all projects
+kfl projects list
+
+# Create a project (with Dev and Prod environments)
+kfl projects create <name>
+
+# Create a project without default environments
+kfl projects create <name> --environmentless
+
+# Delete a project
+kfl projects delete <name>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--environmentless` | Create project without default environments |
+
+---
+
+### `kfl configs`
+
+Manage environments (configs).
+
+```bash
+# List environments in a project
+kfl configs list --project <name>
+
+# Create an environment
+kfl configs create <env-name> --project <name>
+
+# Delete an environment
+kfl configs delete <env-name> --project <name>
+```
+
+---
+
+### `kfl secrets`
+
+Manage secrets.
+
+```bash
+# Set secrets
+kfl secrets set <KEY>=<VALUE> --project <name> --config <env>
+kfl secrets set KEY1=val1 KEY2=val2 --project <name> --config <env>
+
+# Get a secret
+kfl secrets get <KEY> --project <name> --config <env>
+
+# List secrets (values hidden)
+kfl secrets list --project <name> --config <env>
+
+# Delete a secret
+kfl secrets delete <KEY> --project <name> --config <env>
+```
+
+---
+
+### `kfl upload`
+
+Upload a `.env` file (full override).
+
+```bash
+kfl upload <file> --project <name> --config <env>
+```
+
+<Warning>
+  Upload replaces ALL existing secrets in the target environment.
+</Warning>
+
+---
+
+### `kfl download`
+
+Download secrets in various formats.
+
+```bash
+kfl download --project <name> --config <env> [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--format <fmt>` | Output format: `env` (default), `json`, `yaml`, `shell` |
+| `--output <file>` | Write to file (default: stdout) |
+
+---
+
+### `kfl run`
+
+Run a command with secrets injected as environment variables.
+
+```bash
+kfl run --project <name> --config <env> -- <command> [args...]
+```
+
+Examples:
+```bash
+kfl run --project my-api --config production -- npm run build
+kfl run --project my-api --config development -- npm run dev
+kfl run -- npm run dev  # Uses defaults from config
+```
+
+---
+
+### `kfl keys`
+
+Manage API keys.
+
+```bash
+# List all keys
+kfl keys list
+
+# Create a user key
+kfl keys create --type user --label "backup-admin"
+
+# Create a system key
+kfl keys create --type system \
+  --label "github-actions" \
+  --scope "my-api:production" \
+  --permission read
+
+# Update a system key's scopes
+kfl keys put <prefix> \
+  --scope "my-api:production" \
+  --scope "my-api:staging" \
+  --permission readwrite
+
+# Revoke a key
+kfl keys revoke <prefix>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--type <type>` | Key type: `user` or `system` |
+| `--label <label>` | Human-readable label |
+| `--scope <project:env>` | Scope for system keys. Repeatable. Use `*` for env wildcard. |
+| `--permission <perm>` | Permission: `read` or `readwrite` (system keys only) |
+
+---
+
+### `kfl dev`
+
+Local development helpers.
+
+```bash
+# One-time local setup
+kfl dev init [--force]
+
+# Start local server
+kfl dev server [--port <port>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Regenerate local master key (existing data becomes unreadable) |
+| `--port <port>` | Server port (default: 8787) |
+
+---
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `KEYFLARE_API_KEY` | API key (overrides credentials file) |
+| `KEYFLARE_API_URL` | API URL (overrides config file) |
+| `KEYFLARE_LOCAL` | Set to `true` to target `http://localhost:8787` |
+| `KEYFLARE_PROJECT` | Default project |
+| `KEYFLARE_CONFIG` | Default environment |
+| `CLOUDFLARE_API_TOKEN` | Used by `kfl init` (skips auth prompt) |
+| `DEBUG` | Set to `keyflare` for debug logs |
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Authentication error |
+| 3 | Authorization error |
+| 4 | Resource not found |
+| 5 | Network error |
+
+## Configuration Files
+
+```
+~/.config/keyflare/
+├── config.yaml      # Default settings
+└── credentials      # API key (permissions 0600)
+```
+
+**config.yaml:**
+```yaml
+api_url: "https://keyflare.account.workers.dev"
+project: "my-api"
+environment: "development"
+```
+
+## Output Formats
+
+| Format | Flag | Description |
+|--------|------|-------------|
+| `.env` | `--format env` | `KEY=VALUE` per line |
+| JSON | `--format json` | `{ "KEY": "VALUE" }` |
+| YAML | `--format yaml` | `KEY: VALUE` per line |
+| Shell | `--format shell` | `export KEY="VALUE"` per line |

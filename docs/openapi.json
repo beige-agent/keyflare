@@ -1,0 +1,1019 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Keyflare API",
+    "version": "0.1.0",
+    "description": "Open-source secrets manager built entirely on Cloudflare"
+  },
+  "servers": [
+    {
+      "url": "https://keyflare.YOUR_ACCOUNT.workers.dev",
+      "description": "Your Keyflare deployment"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key authentication"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["ok", "error"],
+        "properties": {
+          "ok": { "type": "boolean", "const": false },
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      },
+      "BootstrapResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["key", "prefix", "type", "label"],
+            "properties": {
+              "key": { "type": "string", "description": "Full API key (shown only once)" },
+              "prefix": { "type": "string", "description": "First 12 characters of key" },
+              "type": { "type": "string", "enum": ["user"] },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      },
+      "CreateKeyRequest": {
+        "type": "object",
+        "required": ["type", "label"],
+        "properties": {
+          "type": { "type": "string", "enum": ["user", "system"] },
+          "label": { "type": "string" },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["project", "environment"],
+              "properties": {
+                "project": { "type": "string" },
+                "environment": { "type": "string" }
+              }
+            },
+            "description": "Required for system keys"
+          },
+          "permission": {
+            "type": "string",
+            "enum": ["read", "readwrite"],
+            "description": "Required for system keys"
+          }
+        }
+      },
+      "KeyResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["key", "prefix", "type", "label"],
+            "properties": {
+              "key": { "type": "string", "description": "Full API key (shown only once)" },
+              "prefix": { "type": "string" },
+              "type": { "type": "string", "enum": ["user", "system"] },
+              "label": { "type": "string" },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "project": { "type": "string" },
+                    "environment": { "type": "string" }
+                  }
+                }
+              },
+              "permission": { "type": "string", "enum": ["read", "readwrite", "full"] }
+            }
+          }
+        }
+      },
+      "KeyListResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["keys"],
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "prefix", "type", "label", "permission", "created_at", "revoked"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "prefix": { "type": "string" },
+                    "type": { "type": "string", "enum": ["user", "system"] },
+                    "label": { "type": "string" },
+                    "scopes": { "type": "array", "items": { "type": "object" } },
+                    "permission": { "type": "string", "enum": ["read", "readwrite", "full"] },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "last_used_at": { "type": "string", "format": "date-time" },
+                    "revoked": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "UpdateKeyRequest": {
+        "type": "object",
+        "required": ["scopes", "permission"],
+        "properties": {
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["project", "environment"],
+              "properties": {
+                "project": { "type": "string" },
+                "environment": { "type": "string" }
+              }
+            }
+          },
+          "permission": { "type": "string", "enum": ["read", "readwrite"] }
+        }
+      },
+      "ProjectResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["id", "name", "created_at"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "created_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "ProjectListResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["projects"],
+            "properties": {
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "name", "environment_count", "created_at"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "environment_count": { "type": "integer" },
+                    "created_at": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CreateProjectRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "environmentless": { "type": "boolean", "default": false }
+        }
+      },
+      "DeleteProjectResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["deleted", "environments_removed", "secrets_removed"],
+            "properties": {
+              "deleted": { "type": "string" },
+              "environments_removed": { "type": "integer" },
+              "secrets_removed": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "ConfigResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["id", "name", "project", "created_at"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "project": { "type": "string" },
+              "created_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "ConfigListResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["configs"],
+            "properties": {
+              "configs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "name", "secret_count", "created_at"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "secret_count": { "type": "integer" },
+                    "created_at": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CreateConfigRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      },
+      "SecretsResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["secrets"],
+            "properties": {
+              "secrets": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "SetSecretsRequest": {
+        "type": "object",
+        "required": ["secrets"],
+        "properties": {
+          "secrets": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      },
+      "SetSecretsResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["count", "project", "config"],
+            "properties": {
+              "count": { "type": "integer" },
+              "project": { "type": "string" },
+              "config": { "type": "string" }
+            }
+          }
+        }
+      },
+      "PatchSecretsRequest": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "delete": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "PatchSecretsResponse": {
+        "type": "object",
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "data": {
+            "type": "object",
+            "required": ["set", "deleted", "total"],
+            "properties": {
+              "set": { "type": "integer" },
+              "deleted": { "type": "integer" },
+              "total": { "type": "integer" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "operationId": "health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ok", "data"],
+                  "properties": {
+                    "ok": { "type": "boolean", "const": true },
+                    "data": {
+                      "type": "object",
+                      "required": ["ok", "version"],
+                      "properties": {
+                        "ok": { "type": "boolean", "const": true },
+                        "version": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bootstrap": {
+      "post": {
+        "summary": "Create first root API key",
+        "description": "One-time operation to create the first user key. Only works when no keys exist. Returns 409 Conflict if already initialized.",
+        "operationId": "bootstrap",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Bootstrap key created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BootstrapResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "Already initialized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/keys": {
+      "post": {
+        "summary": "Create a new API key",
+        "operationId": "createKey",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateKeyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "API key created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KeyResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List all API keys",
+        "operationId": "listKeys",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List of API keys",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KeyListResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/keys/{prefix}": {
+      "delete": {
+        "summary": "Revoke an API key",
+        "operationId": "revokeKey",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "prefix",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Key prefix (first 12 characters)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ok", "data"],
+                  "properties": {
+                    "ok": { "type": "boolean", "const": true },
+                    "data": {
+                      "type": "object",
+                      "required": ["revoked"],
+                      "properties": {
+                        "revoked": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Key not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update system key scopes",
+        "description": "Update the scopes and permission of a system key. Replaces all existing scopes.",
+        "operationId": "updateKey",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "prefix",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Key prefix (first 12 characters)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateKeyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KeyResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot update user key or key is revoked",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Key not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects": {
+      "get": {
+        "summary": "List all projects",
+        "operationId": "listProjects",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List of projects",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProjectListResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new project",
+        "description": "Creates a project with default Dev and Prod environments unless environmentless is true",
+        "operationId": "createProject",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateProjectRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProjectResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{name}": {
+      "delete": {
+        "summary": "Delete a project",
+        "description": "Delete a project and all its environments and secrets",
+        "operationId": "deleteProject",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Project name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project deleted",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeleteProjectResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/configs": {
+      "get": {
+        "summary": "List environments in a project",
+        "operationId": "listConfigs",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Project name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of environments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConfigListResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new environment",
+        "operationId": "createConfig",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Project name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateConfigRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Environment created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConfigResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/configs/{config}": {
+      "delete": {
+        "summary": "Delete an environment",
+        "description": "Delete an environment and all its secrets",
+        "operationId": "deleteConfig",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Project name"
+          },
+          {
+            "name": "config",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Environment name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Environment deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ok", "data"],
+                  "properties": {
+                    "ok": { "type": "boolean", "const": true },
+                    "data": {
+                      "type": "object",
+                      "required": ["deleted", "secrets_removed"],
+                      "properties": {
+                        "deleted": { "type": "string" },
+                        "secrets_removed": { "type": "integer" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or environment not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/configs/{config}/secrets": {
+      "get": {
+        "summary": "Get all secrets",
+        "description": "Get all secrets for an environment. Returns decrypted key-value pairs.",
+        "operationId": "getSecrets",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Project name"
+          },
+          {
+            "name": "config",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Environment name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Secrets retrieved",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SecretsResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - key lacks required scope/permission",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or environment not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Set secrets (full override)",
+        "description": "Set secrets for an environment. This is a full override - replaces all existing secrets.",
+        "operationId": "setSecrets",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Project name"
+          },
+          {
+            "name": "config",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Environment name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SetSecretsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Secrets set",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SetSecretsResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - key lacks required scope/permission",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or environment not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update specific secrets",
+        "description": "Update specific secrets without affecting others. Sets or overwrites only the provided keys.",
+        "operationId": "patchSecrets",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Project name"
+          },
+          {
+            "name": "config",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Environment name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PatchSecretsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Secrets updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PatchSecretsResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - key lacks required scope/permission",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or environment not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

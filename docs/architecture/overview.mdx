@@ -1,0 +1,189 @@
+---
+title: Architecture Overview
+description: How Keyflare works under the hood
+sidebar_position: 1
+---
+
+# Architecture Overview
+
+Keyflare is a self-hosted secrets manager that runs as a single Cloudflare Worker backed by a single D1 database.
+
+## Core Principles
+
+1. **Single deployment target** — One Worker, one D1 database, one master secret
+2. **Zero trust storage** — Secret keys and values are encrypted at rest
+3. **Minimal surface area** — No users, no sessions, no OAuth
+4. **Simple mental model** — Projects → Environments → Secrets
+
+## Infrastructure
+
+```mermaid
+graph TB
+    Internet[Internet] --> TLS[TLS/HTTPS]
+    TLS --> Worker[Keyflare Worker]
+    
+    subgraph "Cloudflare Edge"
+        Worker
+        MASTER_KEY[MASTER_KEY Secret]
+        D1[(D1 Database)]
+    end
+    
+    Worker --> MASTER_KEY
+    Worker --> D1
+    
+    subgraph "Worker Runtime"
+        Auth[Auth Layer]
+        Routes[API Routes]
+        Crypto[Crypto Engine]
+    end
+    
+    Worker --> Auth
+    Auth --> Routes
+    Routes --> Crypto
+```
+
+**Total infrastructure:** 1 Worker + 1 D1 database + 1 secret
+
+## Data Model
+
+```mermaid
+erDiagram
+    PROJECT ||--o{ ENVIRONMENT : contains
+    ENVIRONMENT ||--o{ SECRET : contains
+    
+    PROJECT {
+        text id PK
+        text name UK
+        text created_at
+    }
+    
+    ENVIRONMENT {
+        text id PK
+        text project_id FK
+        text name
+        text created_at
+    }
+    
+    SECRET {
+        text id PK
+        text environment_id FK
+        text key_encrypted
+        text key_hash
+        text value_encrypted
+        text updated_at
+    }
+    
+    API_KEY {
+        text id PK
+        text key_prefix
+        text key_hash UK
+        text type
+        text label_encrypted
+        text scopes_encrypted
+        text permission
+        text created_at
+        text last_used_at
+        integer revoked
+    }
+```
+
+### Projects
+
+A project is a namespace for secrets (e.g., `my-api`, `frontend-app`).
+
+### Environments
+
+Each project has environments (e.g., `production`, `staging`, `development`). New projects get **Dev** and **Prod** environments by default.
+
+### Secrets
+
+Key-value pairs stored per environment. Both key names and values are encrypted with AES-256-GCM.
+
+### API Keys
+
+Two types:
+- **User keys** (`kfl_user_*`) — Full admin access
+- **System keys** (`kfl_sys_*`) — Scoped to specific project:environment pairs
+
+## Request Flow
+
+```mermaid
+sequenceDiagram
+    participant CLI as CLI (kfl)
+    participant Worker as Keyflare Worker
+    participant D1 as D1 Database
+
+    CLI->>Worker: POST /secrets/get
+    Note over CLI,Worker: Authorization: Bearer kfl_sys_...
+    Note over CLI,Worker: { project, environment }
+    
+    Worker->>Worker: 1. Hash API key (SHA-256)
+    Worker->>D1: 2. Look up key hash
+    D1-->>Worker: 3. Return key + scopes
+    
+    Worker->>Worker: 4. Verify key + check scopes
+    Worker->>D1: 5. Look up project+env by name
+    D1-->>Worker: 6. Return project/env IDs
+    
+    Worker->>D1: 7. Query secrets by env ID
+    D1-->>Worker: 8. Return encrypted secrets
+    
+    Worker->>Worker: 9. Decrypt keys & values
+    Note over Worker: Uses MASTER_KEY
+    
+    Worker-->>CLI: { secrets: { KEY: "value", ... } }
+    CLI->>CLI: 10. Output as .env / JSON / inject
+```
+
+## Monorepo Structure
+
+```
+keyflare/
+├── packages/
+│   ├── server/    # Cloudflare Worker
+│   │   ├── src/
+│   │   │   ├── index.ts         # Hono app + routes
+│   │   │   ├── db/              # Drizzle schema + queries
+│   │   │   ├── middleware/      # Auth, validation
+│   │   │   └── lib/             # Crypto, utilities
+│   │   └── migrations/          # SQL migrations
+│   │
+│   ├── cli/       # CLI (kfl)
+│   │   └── src/
+│   │       ├── index.ts         # Entry point
+│   │       └── commands/        # Command handlers
+│   │
+│   └── shared/    # Shared types & utilities
+│       └── src/
+│           └── types.ts         # TypeScript types
+│
+├── docs/          # Documentation
+└── package.json   # Root package
+```
+
+## Technology Stack
+
+| Component | Technology | Rationale |
+|-----------|------------|-----------|
+| Web framework | Hono | Ultrafast, typed, Cloudflare-native |
+| Validation | Zod | Declarative schemas with type inference |
+| Runtime | Cloudflare Workers | Edge deployment, zero cold starts |
+| Database | Cloudflare D1 (SQLite) | Zero config, co-located with Worker |
+| Encryption | AES-256-GCM | Native Web Crypto API |
+| API key hashing | SHA-256 | Fast, native, sufficient for 128-bit keys |
+| Lookup hashing | HMAC-SHA256 | Deterministic, keyed |
+| CLI framework | Commander.js | Mature, TypeScript-native |
+| ORM | Drizzle | Type-safe, generates migrations |
+| Build | tsup / wrangler | Fast bundling |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Security Model" href="/architecture/security">
+    Learn about encryption and threat mitigation.
+  </Card>
+
+  <Card title="Encryption" href="/architecture/encryption">
+    Deep dive into the crypto implementation.
+  </Card>
+</CardGroup>

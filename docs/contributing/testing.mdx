@@ -1,0 +1,200 @@
+---
+title: Testing
+description: How to test Keyflare
+sidebar_position: 2
+---
+
+# Testing
+
+Keyflare uses Vitest with the Cloudflare Workers pool for testing.
+
+## Running Tests
+
+```bash
+# Run server tests
+pnpm --filter @keyflare/server test
+
+# Run with gob (recommended — streams output)
+gob run pnpm --filter @keyflare/server test
+```
+
+Only the **server** package has tests today. The **cli** and **shared** packages use `vitest run --passWithNoTests`, so they exit 0 when there are no test files.
+
+## Test Environment
+
+Tests run entirely inside a Miniflare Worker runtime:
+- **No network calls**
+- **No Cloudflare account needed**
+- **Full D1 support**
+
+The server uses Vitest 3.2.x with `@cloudflare/vitest-pool-workers`.
+
+## Test Isolation
+
+Each test run:
+
+1. Creates a unique temp directory at `os.tmpdir()/keyflare-test-<pid>`
+2. Directs Miniflare's D1 storage there via `d1Persist` in `vitest.config.ts`
+3. Deletes the temp directory after all tests finish
+
+This means:
+- Tests never pollute the real local dev `.wrangler/state/`
+- Multiple test runs in parallel don't collide
+- Zero artifacts left after the suite
+
+## Migrations in Tests
+
+`vitest.config.ts` reads Drizzle migration files at startup via `readD1Migrations()` and passes them to Miniflare as a binding (`TEST_MIGRATIONS`).
+
+The `beforeAll` hook in `api.test.ts` calls `applyD1Migrations(env.DB_BINDING, env.TEST_MIGRATIONS)` to apply them before any test runs.
+
+New migrations are picked up automatically — no test code changes needed when the schema changes.
+
+## Test Files
+
+| File | Description |
+|------|-------------|
+| `test/basic.test.ts` | Smoke tests: health, 404, bootstrap idempotence, auth 401 |
+| `test/api.test.ts` | Full API integration tests: keys CRUD, projects, configs, secrets, system-key scoping |
+
+## Writing Tests
+
+### Basic Structure
+
+```typescript
+import { describe, it, expect, beforeAll } from 'vitest';
+import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import worker from '../src/index';
+
+describe('My Feature', () => {
+  it('should work', async () => {
+    // Create execution context
+    const ctx = createExecutionContext();
+    
+    // Make request to worker
+    const response = await worker.fetch(
+      new Request('http://localhost/api/endpoint'),
+      env,
+      ctx
+    );
+    
+    // Wait for async operations
+    await waitOnExecutionContext(ctx);
+    
+    // Assert response
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data).toMatchObject({ ok: true });
+  });
+});
+```
+
+### Testing Auth
+
+```typescript
+describe('with auth', () => {
+  let apiKey: string;
+
+  beforeAll(async () => {
+    // Create a test API key
+    const response = await worker.fetch(
+      new Request('http://localhost/bootstrap', { method: 'POST' }),
+      env,
+      createExecutionContext()
+    );
+    const data = await response.json();
+    apiKey = data.data.key;
+  });
+
+  it('requires authentication', async () => {
+    const response = await worker.fetch(
+      new Request('http://localhost/projects'),
+      env,
+      createExecutionContext()
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it('accepts valid API key', async () => {
+    const response = await worker.fetch(
+      new Request('http://localhost/projects', {
+        headers: { Authorization: `Bearer ${apiKey}` }
+      }),
+      env,
+      createExecutionContext()
+    );
+    expect(response.status).toBe(200);
+  });
+});
+```
+
+### Testing Scopes
+
+```typescript
+it('system key respects scopes', async () => {
+  // Create system key with limited scope
+  const createKeyResponse = await worker.fetch(
+    new Request('http://localhost/keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${rootKey}`
+      },
+      body: JSON.stringify({
+        type: 'system',
+        label: 'test-sys',
+        scopes: [{ project: 'my-api', environment: 'production' }],
+        permission: 'read'
+      })
+    }),
+    env,
+    ctx
+  );
+  const { key: sysKey } = (await createKeyResponse.json()).data;
+
+  // Should work for allowed scope
+  const allowedResponse = await worker.fetch(
+    new Request('http://localhost/projects/my-api/configs/production/secrets', {
+      headers: { Authorization: `Bearer ${sysKey}` }
+    }),
+    env,
+    ctx
+  );
+  expect(allowedResponse.status).toBe(200);
+
+  // Should fail for disallowed scope
+  const deniedResponse = await worker.fetch(
+    new Request('http://localhost/projects/other/configs/dev/secrets', {
+      headers: { Authorization: `Bearer ${sysKey}` }
+    }),
+    env,
+    ctx
+  );
+  expect(deniedResponse.status).toBe(403);
+});
+```
+
+## CI
+
+GitHub Actions runs on every push to `main` and on pull requests. The workflow (`.github/workflows/ci.yml`) triggers only when relevant paths change.
+
+Steps run in order:
+1. **Install** (frozen lockfile)
+2. **Build**
+3. **Typecheck**
+4. **Lint**
+5. **Test**
+
+Node is set from `.nvmrc` (24); pnpm is cached.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development" href="/contributing/development">
+    Set up your development environment.
+  </Card>
+
+  <Card title="Architecture" href="/architecture/overview">
+    Understand how Keyflare works.
+  </Card>
+</CardGroup>
