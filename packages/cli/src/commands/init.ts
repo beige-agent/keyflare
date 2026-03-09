@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { select, confirm, password } from "@inquirer/prompts";
 import ora from "ora";
@@ -217,6 +218,148 @@ function workerHasMasterKeySecret(authEnv: Record<string, string>): boolean {
   }
 }
 
+// ─── Worker / D1 discovery helpers ────────────────────────────
+
+/**
+ * Returns true if the "keyflare" worker already has at least one deployment
+ * on the account. Uses exit-code detection: wrangler exits 1 with code 10007
+ * when the worker does not exist.
+ */
+function checkWorkerExists(authEnv: Record<string, string>): boolean {
+  debug("checking if worker 'keyflare' exists via deployments list");
+  const result = wrangler(
+    ["deployments", "list", "--name", "keyflare", "--json"],
+    authEnv,
+    serverDir(),
+    { ignoreError: true }
+  );
+
+  if (result.status !== 0) {
+    // code 10007 = worker does not exist; any other error is unexpected but
+    // we treat it the same way — caller will discover the real error on deploy.
+    debug("deployments list exited %d — worker likely does not exist", result.status);
+    return false;
+  }
+
+  try {
+    const deployments = JSON.parse(result.stdout) as Array<unknown>;
+    const exists = Array.isArray(deployments) && deployments.length > 0;
+    debug("worker exists=%s (%d deployments)", exists, deployments.length);
+    return exists;
+  } catch {
+    debug("failed to parse deployments list JSON; treating as non-existent");
+    return false;
+  }
+}
+
+/**
+ * Reads the D1 database_id that is currently bound to the live "keyflare"
+ * worker by inspecting the latest deployment's version bindings.
+ *
+ * Flow:
+ *   1. wrangler deployments list --name keyflare --json
+ *      → pick the last entry (most recent), read versions[0].version_id
+ *   2. wrangler versions view <version_id> --name keyflare --json
+ *      → find the binding where type === "d1", return its database_id
+ *
+ * Throws if the worker has no deployments or no D1 binding.
+ */
+function resolveD1DatabaseId(authEnv: Record<string, string>): string {
+  debug("resolving D1 database_id from live worker bindings");
+
+  // Step 1: get the latest version_id
+  const listResult = wrangler(
+    ["deployments", "list", "--name", "keyflare", "--json"],
+    authEnv,
+    serverDir()
+  );
+
+  type Deployment = { versions: Array<{ version_id: string }> };
+  let deployments: Deployment[];
+  try {
+    deployments = JSON.parse(listResult.stdout) as Deployment[];
+  } catch {
+    throw new Error("Could not parse deployments list JSON");
+  }
+
+  if (!Array.isArray(deployments) || deployments.length === 0) {
+    throw new Error("No deployments found for worker 'keyflare'");
+  }
+
+  // The array is ordered oldest-first; take the last entry.
+  const latest = deployments[deployments.length - 1];
+  const versionId = latest?.versions?.[0]?.version_id;
+  if (!versionId) {
+    throw new Error("Latest deployment has no version_id");
+  }
+  debug("latest version_id=%s", versionId);
+
+  // Step 2: inspect the version's bindings
+  const viewResult = wrangler(
+    ["versions", "view", versionId, "--name", "keyflare", "--json"],
+    authEnv,
+    serverDir()
+  );
+
+  type Binding = { type: string; database_id?: string; name: string };
+  type VersionPayload = { resources?: { bindings?: Binding[] } };
+  let version: VersionPayload;
+  try {
+    version = JSON.parse(viewResult.stdout) as VersionPayload;
+  } catch {
+    throw new Error("Could not parse version view JSON");
+  }
+
+  const d1Binding = version.resources?.bindings?.find((b) => b.type === "d1");
+  if (!d1Binding?.database_id) {
+    throw new Error(
+      "No D1 binding found on worker 'keyflare'. " +
+        "Ensure the wrangler.jsonc d1_databases config is present before deploying."
+    );
+  }
+
+  debug("resolved database_id=%s (binding name=%s)", d1Binding.database_id, d1Binding.name);
+  return d1Binding.database_id;
+}
+
+/**
+ * Writes the resolved database_id into packages/server/wrangler.jsonc.
+ *
+ * Always overwrites — the local file cannot be trusted since a different
+ * machine or team member may have redeployed with a different binding.
+ *
+ * The file uses JSONC (with // comments). We strip line comments before
+ * parsing, then write back as standard JSON (comments are intentionally
+ * dropped after first init run).
+ */
+function patchWranglerConfig(databaseId: string): void {
+  const configPath = path.join(serverDir(), "wrangler.jsonc");
+  debug("patching wrangler config at %s with database_id=%s", configPath, databaseId);
+
+  const raw = fs.readFileSync(configPath, "utf-8");
+
+  // Strip single-line // comments (simple, sufficient for this config file)
+  const stripped = raw.replace(/\/\/.*$/gm, "");
+
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(stripped) as Record<string, unknown>;
+  } catch (e: any) {
+    throw new Error(`Failed to parse wrangler.jsonc: ${e.message}`);
+  }
+
+  const databases = config.d1_databases as Array<Record<string, unknown>>;
+  if (!Array.isArray(databases) || databases.length === 0) {
+    throw new Error("wrangler.jsonc has no d1_databases entry to patch");
+  }
+
+  // Always overwrite regardless of existing value
+  databases[0].database_id = databaseId;
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  debug("wrangler.jsonc patched successfully");
+}
+
 // ─── kfl init (remote deploy) ─────────────────────────────────
 
 export async function runInit(options: { force?: boolean; masterKey?: string }) {
@@ -263,8 +406,14 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     process.exit(1);
   }
 
-  // ── Step 2: Deploy worker (idempotent)
-  const deploySpinner = ora("Deploying Keyflare Worker...").start();
+  // ── Step 2: Check if the worker already exists
+  const workerExists = checkWorkerExists(authEnv);
+  debug("worker pre-exists=%s", workerExists);
+
+  // ── Step 3: Deploy worker (always — idempotent, updates code on re-runs)
+  const deploySpinner = ora(
+    workerExists ? "Redeploying Keyflare Worker..." : "Deploying Keyflare Worker..."
+  ).start();
   let workerUrl = "";
   try {
     const deployOutput = wrangler(["deploy"], authEnv, serverDir());
@@ -272,14 +421,31 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     workerUrl = urlMatch?.[0] ?? "";
     debug("deploy completed workerUrl=%s", workerUrl || "<not parsed>");
     deploySpinner.succeed(
-      `Worker deployed${workerUrl ? `: ${bold(workerUrl)}` : ""}`
+      `Worker ${workerExists ? "redeployed" : "deployed"}${workerUrl ? `: ${bold(workerUrl)}` : ""}`
     );
   } catch (err: any) {
     deploySpinner.fail(`Worker deployment failed: ${err.message}`);
     process.exit(1);
   }
 
-  // ── Step 3: Ensure MASTER_KEY exists (never overwrite)
+  // ── Step 4: Resolve D1 database_id from the live worker bindings and patch wrangler.jsonc
+  //
+  // We always resolve from the live deployment — local wrangler.jsonc cannot be
+  // trusted since another machine or team member may have redeployed.
+  // The patched wrangler.jsonc is what Step 6 (migrations) relies on to find
+  // the correct database, since `wrangler d1 migrations apply` has no --database-id flag.
+  const d1Spinner = ora("Resolving D1 database binding...").start();
+  let databaseId: string;
+  try {
+    databaseId = resolveD1DatabaseId(authEnv);
+    patchWranglerConfig(databaseId);
+    d1Spinner.succeed(`D1 database resolved (id: ${dim(databaseId)})`);
+  } catch (err: any) {
+    d1Spinner.fail(`Failed to resolve D1 database: ${err.message}`);
+    process.exit(1);
+  }
+
+  // ── Step 5: Ensure MASTER_KEY exists (never overwrite)
   const checkSecretSpinner = ora("Checking Worker secrets...").start();
   const hasExistingMasterKey = workerHasMasterKeySecret(authEnv);
   checkSecretSpinner.succeed(
@@ -331,14 +497,24 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     }
   }
 
-  // ── Step 4: Run D1 migrations
+  // ── Step 6: Run D1 migrations
+  //
+  // wrangler resolves the database by name from wrangler.jsonc — which was
+  // patched with the correct database_id in Step 4, so this is safe.
   const migrateSpinner = ora("Running database migrations...").start();
   try {
-    wrangler(["d1", "migrations", "apply", "keyflare", "--remote"], authEnv, serverDir());
+    wrangler(
+      ["d1", "migrations", "apply", "keyflare", "--remote"],
+      authEnv,
+      serverDir()
+    );
     debug("migrations apply completed");
     migrateSpinner.succeed("Database migrations applied");
   } catch (err: any) {
-    if (err.message.includes("already been applied") || err.message.includes("No migrations to apply")) {
+    if (
+      err.message.includes("already been applied") ||
+      err.message.includes("No migrations to apply")
+    ) {
       migrateSpinner.succeed("Database schema already up to date");
     } else {
       migrateSpinner.fail(`Migrations failed: ${err.message}`);
@@ -346,7 +522,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     }
   }
 
-  // ── Step 5: Bootstrap — create first user key (idempotent)
+  // ── Step 7: Bootstrap — create first user key (idempotent)
   const bootstrapSpinner = ora("Creating root API key...").start();
   const apiUrl = workerUrl || `https://keyflare.workers.dev`;
   debug("bootstrap using apiUrl=%s", apiUrl);
@@ -372,7 +548,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     }
   }
 
-  // ── Step 6: Save config
+  // ── Step 8: Save config
   const existingConfig = readConfig();
   writeConfig({ apiUrl, project: existingConfig.project, environment: existingConfig.environment });
   if (rootKey) {
