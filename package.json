@@ -14,7 +14,7 @@
     "typecheck": "pnpm -r typecheck",
     "types": "pnpm --filter @keyflare/server cf-typegen",
     "kfl": "tsx packages/cli/src/index.ts",
-    "deploy": "pnpm -F @keyflare/server run db:migrations:apply && pnpm -F @keyflare/server run deploy"
+    "deploy": "pnpm -F @keyflare/server run deploy"
   },
   "engines": {
     "node": ">=24.0.0",
