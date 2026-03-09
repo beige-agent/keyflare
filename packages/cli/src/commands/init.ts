@@ -551,26 +551,24 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     }
   }
 
-  // ── Step 6: Bootstrap — create first user key (idempotent)
-  const bootstrapSpinner = ora("Creating root API key...").start();
+  // ── Step 6: Bootstrap — create first admin key (skipped if already done)
+  const bootstrapSpinner = ora("Creating admin API key...").start();
   const apiUrl = workerUrl || `https://keyflare.workers.dev`;
   debug("bootstrap using apiUrl=%s", apiUrl);
 
   // Temporarily set the API URL to bootstrap
   process.env.KEYFLARE_API_URL = apiUrl;
 
-  let rootKey: string | undefined;
+  let adminKey: string | undefined;
   try {
     const data = await api.post<BootstrapResponse>("/bootstrap");
-    rootKey = data.key;
-    debug("bootstrap created root key (%s)", redact(rootKey));
-    bootstrapSpinner.succeed("Root API key created");
+    adminKey = data.key;
+    debug("bootstrap created admin key (%s)", redact(adminKey));
+    bootstrapSpinner.succeed("Admin API key created");
   } catch (err: any) {
     if (err instanceof KeyflareApiError && err.code === "CONFLICT") {
-      bootstrapSpinner.warn(
-        "Bootstrap already done — a root key already exists"
-      );
-      warn("If you lost your root key, create a new one via an existing user key.");
+      // Normal on re-runs of kfl init — the instance is already initialised.
+      bootstrapSpinner.succeed("Instance already initialised — existing API keys preserved");
     } else {
       bootstrapSpinner.fail(`Bootstrap failed: ${err.message}`);
       process.exit(1);
@@ -580,16 +578,16 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   // ── Step 7: Save config
   const existingConfig = readConfig();
   writeConfig({ apiUrl, project: existingConfig.project, environment: existingConfig.environment });
-  if (rootKey) {
-    writeApiKey(rootKey);
+  if (adminKey) {
+    writeApiKey(adminKey);
   }
-  debug("config written; rootKeySaved=%s", Boolean(rootKey));
+  debug("config written; adminKeySaved=%s", Boolean(adminKey));
 
   log("");
   success(bold("✓ Keyflare deployed successfully!"));
-  if (rootKey) {
+  if (adminKey) {
     log(
-      `\nYour root API key ${dim("(shown once — already saved to ~/.config/keyflare/)")}:\n\n  ${bold(rootKey)}\n`
+      `\nYour admin API key ${dim("(shown once — already saved to ~/.config/keyflare/)")}:\n\n  ${bold(adminKey)}\n`
     );
   }
 
