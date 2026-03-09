@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { select, confirm, password } from "@inquirer/prompts";
 import ora from "ora";
@@ -323,22 +324,22 @@ function resolveD1DatabaseId(authEnv: Record<string, string>): string {
 }
 
 /**
- * Writes the resolved database_id into packages/server/wrangler.jsonc.
+ * Reads wrangler.jsonc, injects the resolved database_id, and writes the
+ * result to a temporary file. Returns the temp file path.
  *
- * Always overwrites — the local file cannot be trusted since a different
- * machine or team member may have redeployed with a different binding.
+ * The caller is responsible for deleting the file when done (use a
+ * try/finally block). wrangler.jsonc is never modified.
  *
  * The file uses JSONC (with // comments). We strip line comments before
- * parsing, then write back as standard JSON (comments are intentionally
- * dropped after first init run).
+ * parsing, then write back as standard JSON into the temp file.
  */
-function patchWranglerConfig(databaseId: string): void {
+function buildEphemeralConfig(databaseId: string): string {
   const configPath = path.join(serverDir(), "wrangler.jsonc");
-  debug("patching wrangler config at %s with database_id=%s", configPath, databaseId);
+  debug("building ephemeral config from %s with database_id=%s", configPath, databaseId);
 
   const raw = fs.readFileSync(configPath, "utf-8");
 
-  // Strip single-line // comments (simple, sufficient for this config file)
+  // Strip single-line // comments (sufficient for this config file)
   const stripped = raw.replace(/\/\/.*$/gm, "");
 
   let config: Record<string, unknown>;
@@ -350,14 +351,18 @@ function patchWranglerConfig(databaseId: string): void {
 
   const databases = config.d1_databases as Array<Record<string, unknown>>;
   if (!Array.isArray(databases) || databases.length === 0) {
-    throw new Error("wrangler.jsonc has no d1_databases entry to patch");
+    throw new Error("wrangler.jsonc has no d1_databases entry");
   }
 
-  // Always overwrite regardless of existing value
   databases[0].database_id = databaseId;
+  // migrations_dir is relative in the source config; make it absolute so that
+  // wrangler resolves it correctly when -c points at a file in os.tmpdir().
+  databases[0].migrations_dir = path.join(serverDir(), String(databases[0].migrations_dir ?? "migrations"));
 
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-  debug("wrangler.jsonc patched successfully");
+  const tmpPath = path.join(os.tmpdir(), `keyflare-wrangler-${Date.now()}.json`);
+  fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  debug("ephemeral config written to %s", tmpPath);
+  return tmpPath;
 }
 
 // ─── kfl init (remote deploy) ─────────────────────────────────
@@ -410,7 +415,18 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   const workerExists = checkWorkerExists(authEnv);
   debug("worker pre-exists=%s", workerExists);
 
-  // ── Step 3: Deploy worker (always — idempotent, updates code on re-runs)
+  // ── Step 3: Resolve D1 database_id and build an ephemeral wrangler config
+  //
+  // On first deploy the worker doesn't exist yet, so we deploy first with the
+  // base config (no database_id), then resolve the ID from the live bindings.
+  // On re-runs we can resolve before deploying, but deploying first is simpler
+  // and fully idempotent either way.
+  //
+  // The ephemeral config is a temp file that mirrors wrangler.jsonc but with
+  // database_id injected. It is passed via -c to deploy and migrations so that
+  // wrangler.jsonc is never modified.
+
+  // First deploy — needed on first run so the D1 binding is created by Cloudflare.
   const deploySpinner = ora(
     workerExists ? "Redeploying Keyflare Worker..." : "Deploying Keyflare Worker..."
   ).start();
@@ -428,101 +444,114 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     process.exit(1);
   }
 
-  // ── Step 4: Resolve D1 database_id from the live worker bindings and patch wrangler.jsonc
-  //
-  // We always resolve from the live deployment — local wrangler.jsonc cannot be
-  // trusted since another machine or team member may have redeployed.
-  // The patched wrangler.jsonc is what Step 6 (migrations) relies on to find
-  // the correct database, since `wrangler d1 migrations apply` has no --database-id flag.
+  // Resolve database_id from the live worker bindings.
+  // Always reads from Cloudflare — local wrangler.jsonc cannot be trusted
+  // since another machine or team member may have redeployed.
   const d1Spinner = ora("Resolving D1 database binding...").start();
   let databaseId: string;
+  let ephemeralConfigPath: string;
   try {
     databaseId = resolveD1DatabaseId(authEnv);
-    patchWranglerConfig(databaseId);
+    ephemeralConfigPath = buildEphemeralConfig(databaseId);
     d1Spinner.succeed(`D1 database resolved (id: ${dim(databaseId)})`);
   } catch (err: any) {
     d1Spinner.fail(`Failed to resolve D1 database: ${err.message}`);
     process.exit(1);
   }
 
-  // ── Step 5: Ensure MASTER_KEY exists (never overwrite)
-  const checkSecretSpinner = ora("Checking Worker secrets...").start();
-  const hasExistingMasterKey = workerHasMasterKeySecret(authEnv);
-  checkSecretSpinner.succeed(
-    hasExistingMasterKey
-      ? "Found existing MASTER_KEY secret"
-      : "No MASTER_KEY secret found"
-  );
-
+  // masterKeyToDisplay is set inside the try block below and read in the
+  // summary block after — declared here so it survives the try/finally scope.
   let masterKeyToDisplay: string | undefined;
-  if (hasExistingMasterKey) {
-    if (customMasterKey) {
-      warn(
-        "MASTER_KEY already exists on the worker. --masterkey was ignored to avoid overriding it."
-      );
-    }
-  } else {
-    const masterKey = customMasterKey ?? generateMasterKey();
-    debug("generated new master key (%s)", redact(masterKey));
 
-    const secretSpinner = ora("Pushing master key to Worker secrets...").start();
-    try {
-      const result = spawnSync(
-        "npx",
-        ["wrangler", "secret", "put", "MASTER_KEY"],
-        {
-          stdio: ["pipe", "pipe", "pipe"],
-          cwd: serverDir(),
-          input: masterKey + "\n",
-          env: { ...process.env, ...authEnv },
-        }
-      );
-      if (result.status !== 0) {
-        throw new Error(result.stderr?.toString() ?? "unknown error");
-      }
-      debug("MASTER_KEY secret stored");
-      secretSpinner.succeed("Master key stored as Worker secret");
-      masterKeyToDisplay = masterKey;
-
-      if (!customMasterKey) {
-        warn(
-          `\n⚠️  MASTER KEY — Save this somewhere safe. It cannot be recovered!\n`
-        );
-        log(bold(`  ${masterKey}\n`));
-        await confirm({ message: "I have saved the master key", default: false });
-      }
-    } catch (err: any) {
-      secretSpinner.fail(`Failed to push master key: ${err.message}`);
-      process.exit(1);
-    }
-  }
-
-  // ── Step 6: Run D1 migrations
-  //
-  // wrangler resolves the database by name from wrangler.jsonc — which was
-  // patched with the correct database_id in Step 4, so this is safe.
-  const migrateSpinner = ora("Running database migrations...").start();
   try {
-    wrangler(
-      ["d1", "migrations", "apply", "keyflare", "--remote"],
-      authEnv,
-      serverDir()
+    // ── Step 4: Ensure MASTER_KEY exists (never overwrite)
+    const checkSecretSpinner = ora("Checking Worker secrets...").start();
+    const hasExistingMasterKey = workerHasMasterKeySecret(authEnv);
+    checkSecretSpinner.succeed(
+      hasExistingMasterKey
+        ? "Found existing MASTER_KEY secret"
+        : "No MASTER_KEY secret found"
     );
-    debug("migrations apply completed");
-    migrateSpinner.succeed("Database migrations applied");
-  } catch (err: any) {
-    if (
-      err.message.includes("already been applied") ||
-      err.message.includes("No migrations to apply")
-    ) {
-      migrateSpinner.succeed("Database schema already up to date");
+
+    if (hasExistingMasterKey) {
+      if (customMasterKey) {
+        warn(
+          "MASTER_KEY already exists on the worker. --masterkey was ignored to avoid overriding it."
+        );
+      }
     } else {
-      migrateSpinner.fail(`Migrations failed: ${err.message}`);
-      process.exit(1);
+      const masterKey = customMasterKey ?? generateMasterKey();
+      debug("generated new master key (%s)", redact(masterKey));
+
+      const secretSpinner = ora("Pushing master key to Worker secrets...").start();
+      try {
+        const result = spawnSync(
+          "npx",
+          ["wrangler", "secret", "put", "MASTER_KEY"],
+          {
+            stdio: ["pipe", "pipe", "pipe"],
+            cwd: serverDir(),
+            input: masterKey + "\n",
+            env: { ...process.env, ...authEnv },
+          }
+        );
+        if (result.status !== 0) {
+          throw new Error(result.stderr?.toString() ?? "unknown error");
+        }
+        debug("MASTER_KEY secret stored");
+        secretSpinner.succeed("Master key stored as Worker secret");
+        masterKeyToDisplay = masterKey;
+
+        if (!customMasterKey) {
+          warn(
+            `\n⚠️  MASTER KEY — Save this somewhere safe. It cannot be recovered!\n`
+          );
+          log(bold(`  ${masterKey}\n`));
+          await confirm({ message: "I have saved the master key", default: false });
+        }
+      } catch (err: any) {
+        secretSpinner.fail(`Failed to push master key: ${err.message}`);
+        process.exit(1);
+      }
+    }
+
+    // ── Step 5: Run D1 migrations via the ephemeral config
+    //
+    // The ephemeral config contains the resolved database_id, so wrangler can
+    // identify the correct remote database without touching wrangler.jsonc.
+    const migrateSpinner = ora("Running database migrations...").start();
+    try {
+      wrangler(
+        ["d1", "migrations", "apply", "keyflare", "--remote", "-c", ephemeralConfigPath],
+        authEnv,
+        serverDir()
+      );
+      debug("migrations apply completed");
+      migrateSpinner.succeed("Database migrations applied");
+    } catch (err: any) {
+      if (
+        err.message.includes("already been applied") ||
+        err.message.includes("No migrations to apply")
+      ) {
+        migrateSpinner.succeed("Database schema already up to date");
+      } else {
+        migrateSpinner.fail(`Migrations failed: ${err.message}`);
+        process.exit(1);
+      }
+    }
+  } finally {
+    // Best-effort cleanup of the ephemeral config.
+    // Note: process.exit() bypasses finally — acceptable since the OS reclaims
+    // temp files. For all normal (non-exit) paths this runs correctly.
+    try {
+      fs.unlinkSync(ephemeralConfigPath);
+      debug("ephemeral config deleted: %s", ephemeralConfigPath);
+    } catch {
+      // ignore
     }
   }
 
-  // ── Step 7: Bootstrap — create first user key (idempotent)
+  // ── Step 6: Bootstrap — create first user key (idempotent)
   const bootstrapSpinner = ora("Creating root API key...").start();
   const apiUrl = workerUrl || `https://keyflare.workers.dev`;
   debug("bootstrap using apiUrl=%s", apiUrl);
@@ -548,7 +577,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     }
   }
 
-  // ── Step 8: Save config
+  // ── Step 7: Save config
   const existingConfig = readConfig();
   writeConfig({ apiUrl, project: existingConfig.project, environment: existingConfig.environment });
   if (rootKey) {
