@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +11,28 @@ import { makeDebug, redact } from "../debug.js";
 import { log, success, warn, error, bold, dim } from "../output/log.js";
 
 const debug = makeDebug("init");
+
+/**
+ * Track the currently running wrangler child process so we can kill it on
+ * SIGINT. Wrangler catches SIGINT itself and doesn't exit, so the terminal's
+ * Ctrl+C alone won't stop it.
+ */
+let activeChild: import("node:child_process").ChildProcess | null = null;
+
+/** Kill the active wrangler child process tree (if any). Called from the global SIGINT handler. */
+export function killActiveChild(): void {
+  if (activeChild?.pid) {
+    debug("killing active wrangler process tree pgid=%d", activeChild.pid);
+    try {
+      // Negative PID sends signal to the entire process group (wrangler + its children)
+      process.kill(-activeChild.pid, "SIGKILL");
+    } catch {
+      // Fallback: kill just the direct child
+      try { activeChild.kill("SIGKILL"); } catch { /* already gone */ }
+    }
+    activeChild = null;
+  }
+}
 
 /**
  * Master key format: base64-encoded 256-bit (32-byte) key.
@@ -107,7 +129,7 @@ async function resolveCloudflareAuth(): Promise<{
         "\nOpening Cloudflare login in your browser. Press Enter here when done..."
       )
     );
-    const result = spawnSync("npx", ["wrangler", "login"], {
+    const result = spawnSync(wranglerBin(), ["login"], {
       stdio: "inherit",
     });
     if (result.status !== 0) {
@@ -131,7 +153,7 @@ async function resolveCloudflareAuth(): Promise<{
 
 function checkWranglerOAuthSession(): boolean {
   try {
-    const result = spawnSync("npx", ["wrangler", "whoami", "--json"], {
+    const result = spawnSync(wranglerBin(), ["whoami", "--json"], {
       stdio: "pipe",
     });
 
@@ -159,41 +181,114 @@ function serverDir(): string {
   return path.resolve(here, "../../../server");
 }
 
-function wrangler(
+/**
+ * Resolve the wrangler binary path directly, avoiding npx/npm-exec which
+ * adds intermediate processes that swallow SIGINT.
+ */
+function wranglerBin(): string {
+  // wrangler is a dependency of @keyflare/server
+  const binPath = path.join(serverDir(), "node_modules", ".bin", "wrangler");
+  if (fs.existsSync(binPath)) {
+    debug("resolved wrangler binary: %s", binPath);
+    return binPath;
+  }
+  // Fallback: let PATH resolution find it
+  debug("wrangler binary not found at %s, falling back to PATH", binPath);
+  return "wrangler";
+}
+
+async function wrangler(
   args: string[],
   authEnv: Record<string, string>,
   cwd?: string,
   options?: { ignoreError?: boolean }
-): { stdout: string; stderr: string; status: number | null } {
+): Promise<{ stdout: string; stderr: string; status: number | null }> {
   debug("wrangler %o cwd=%s", args, cwd ?? process.cwd());
-  const result = spawnSync("npx", ["wrangler", ...args], {
-    stdio: ["inherit", "pipe", "pipe"],
-    cwd,
-    env: { ...process.env, ...authEnv },
+
+  return new Promise((resolve, reject) => {
+    // detached: true makes the child a process group leader so we can kill
+    // the entire tree (wrangler + its sub-processes) via process.kill(-pid).
+    const child = spawn(wranglerBin(), args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd,
+      detached: true,
+      env: { ...process.env, ...authEnv },
+    });
+
+    activeChild = child;
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    // Listen for Ctrl+C on stdin while the child is running.
+    // pnpm/tsx swallow SIGINT so process.on("SIGINT") never fires — detect
+    // the raw 0x03 byte (Ctrl+C) directly instead.
+    let stdinWasRaw = false;
+    const onStdinData = (data: Buffer) => {
+      if (data[0] === 0x03) {
+        debug("Ctrl+C detected on stdin, killing wrangler process tree");
+        cleanupStdin();
+        killActiveChild();
+        // Restore cursor (ora hides it)
+        process.stderr.write("\x1B[?25h");
+        process.exit(130);
+      }
+    };
+
+    const cleanupStdin = () => {
+      process.stdin.off("data", onStdinData);
+      if (process.stdin.isTTY) {
+        try { process.stdin.setRawMode(stdinWasRaw); } catch { /* ignore */ }
+        process.stdin.pause();
+      }
+    };
+
+    if (process.stdin.isTTY) {
+      stdinWasRaw = process.stdin.isRaw;
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.on("data", onStdinData);
+    }
+
+    child.on("close", (code) => {
+      activeChild = null;
+      cleanupStdin();
+
+      debug(
+        "wrangler done status=%s stdoutLen=%d stderrLen=%d",
+        code,
+        stdout.length,
+        stderr.length
+      );
+
+      if (code === null) {
+        reject(new Error(`wrangler ${args[0]} was terminated`));
+      } else if (!options?.ignoreError && code !== 0) {
+        reject(new Error(`wrangler ${args[0]} failed:\n${stderr}`));
+      } else {
+        resolve({ stdout, stderr, status: code });
+      }
+    });
+
+    child.on("error", (err) => {
+      activeChild = null;
+      cleanupStdin();
+      reject(err);
+    });
   });
-
-  if (!options?.ignoreError && result.status !== 0) {
-    const stderr = result.stderr?.toString() ?? "";
-    throw new Error(`wrangler ${args[0]} failed:\n${stderr}`);
-  }
-
-  debug(
-    "wrangler done status=%s stdoutLen=%d stderrLen=%d",
-    result.status,
-    result.stdout?.toString()?.length ?? 0,
-    result.stderr?.toString()?.length ?? 0
-  );
-
-  return {
-    stdout: result.stdout?.toString() ?? "",
-    stderr: result.stderr?.toString() ?? "",
-    status: result.status,
-  };
 }
 
-function workerHasMasterKeySecret(authEnv: Record<string, string>): boolean {
+async function workerHasMasterKeySecret(authEnv: Record<string, string>): Promise<boolean> {
   debug("checking if worker has MASTER_KEY secret");
-  const result = wrangler(
+  const result = await wrangler(
     ["secret", "list", "--name", "keyflare", "--format", "json"],
     authEnv,
     serverDir(),
@@ -226,9 +321,9 @@ function workerHasMasterKeySecret(authEnv: Record<string, string>): boolean {
  * on the account. Uses exit-code detection: wrangler exits 1 with code 10007
  * when the worker does not exist.
  */
-function checkWorkerExists(authEnv: Record<string, string>): boolean {
+async function checkWorkerExists(authEnv: Record<string, string>): Promise<boolean> {
   debug("checking if worker 'keyflare' exists via deployments list");
-  const result = wrangler(
+  const result = await wrangler(
     ["deployments", "list", "--name", "keyflare", "--json"],
     authEnv,
     serverDir(),
@@ -236,8 +331,6 @@ function checkWorkerExists(authEnv: Record<string, string>): boolean {
   );
 
   if (result.status !== 0) {
-    // code 10007 = worker does not exist; any other error is unexpected but
-    // we treat it the same way — caller will discover the real error on deploy.
     debug("deployments list exited %d — worker likely does not exist", result.status);
     return false;
   }
@@ -265,11 +358,10 @@ function checkWorkerExists(authEnv: Record<string, string>): boolean {
  *
  * Throws if the worker has no deployments or no D1 binding.
  */
-function resolveD1DatabaseId(authEnv: Record<string, string>): string {
+async function resolveD1DatabaseId(authEnv: Record<string, string>): Promise<string> {
   debug("resolving D1 database_id from live worker bindings");
 
-  // Step 1: get the latest version_id
-  const listResult = wrangler(
+  const listResult = await wrangler(
     ["deployments", "list", "--name", "keyflare", "--json"],
     authEnv,
     serverDir()
@@ -287,7 +379,6 @@ function resolveD1DatabaseId(authEnv: Record<string, string>): string {
     throw new Error("No deployments found for worker 'keyflare'");
   }
 
-  // The array is ordered oldest-first; take the last entry.
   const latest = deployments[deployments.length - 1];
   const versionId = latest?.versions?.[0]?.version_id;
   if (!versionId) {
@@ -295,8 +386,7 @@ function resolveD1DatabaseId(authEnv: Record<string, string>): string {
   }
   debug("latest version_id=%s", versionId);
 
-  // Step 2: inspect the version's bindings
-  const viewResult = wrangler(
+  const viewResult = await wrangler(
     ["versions", "view", versionId, "--name", "keyflare", "--json"],
     authEnv,
     serverDir()
@@ -401,7 +491,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   // Verify auth works
   const verifySpinner = ora("Verifying Cloudflare credentials...").start();
   try {
-    const whoami = wrangler(["whoami"], authEnv);
+    const whoami = await wrangler(["whoami"], authEnv);
     const lines = whoami.stdout.split("\n");
     const accountNameLine = lines.find(
       (line) => line.includes("│") && line.includes("Account") && !line.includes("Account Name")
@@ -417,7 +507,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   }
 
   // ── Step 2: Check if the worker already exists
-  const workerExists = checkWorkerExists(authEnv);
+  const workerExists = await checkWorkerExists(authEnv);
   debug("worker pre-exists=%s", workerExists);
 
   // ── Step 3: Resolve D1 database_id and build an ephemeral wrangler config
@@ -437,7 +527,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   ).start();
   let workerUrl = "";
   try {
-    const deployOutput = wrangler(["deploy"], authEnv, serverDir());
+    const deployOutput = await wrangler(["deploy"], authEnv, serverDir());
     const urlMatch = deployOutput.stdout.match(/https:\/\/[\w.-]+\.workers\.dev/);
     workerUrl = urlMatch?.[0] ?? "";
     debug("deploy completed workerUrl=%s", workerUrl || "<not parsed>");
@@ -456,7 +546,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   let databaseId: string;
   let ephemeralConfigPath: string;
   try {
-    databaseId = resolveD1DatabaseId(authEnv);
+    databaseId = await resolveD1DatabaseId(authEnv);
     ephemeralConfigPath = buildEphemeralConfig(databaseId);
     d1Spinner.succeed(`D1 database resolved (id: ${dim(databaseId)})`);
   } catch (err: any) {
@@ -471,7 +561,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   try {
     // ── Step 4: Ensure MASTER_KEY exists (never overwrite)
     const checkSecretSpinner = ora("Checking Worker secrets...").start();
-    const hasExistingMasterKey = workerHasMasterKeySecret(authEnv);
+    const hasExistingMasterKey = await workerHasMasterKeySecret(authEnv);
     checkSecretSpinner.succeed(
       hasExistingMasterKey
         ? "Found existing MASTER_KEY secret"
@@ -491,8 +581,8 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
       const secretSpinner = ora("Pushing master key to Worker secrets...").start();
       try {
         const result = spawnSync(
-          "npx",
-          ["wrangler", "secret", "put", "MASTER_KEY"],
+          wranglerBin(),
+          ["secret", "put", "MASTER_KEY"],
           {
             stdio: ["pipe", "pipe", "pipe"],
             cwd: serverDir(),
@@ -526,7 +616,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     // identify the correct remote database without touching wrangler.jsonc.
     const migrateSpinner = ora("Running database migrations...").start();
     try {
-      wrangler(
+      await wrangler(
         ["d1", "migrations", "apply", "keyflare", "--remote", "-c", ephemeralConfigPath],
         authEnv,
         serverDir()
