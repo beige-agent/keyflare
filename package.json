@@ -7,14 +7,17 @@
   "scripts": {
     "dev": "pnpm --filter @keyflare/server dev",
     "studio": "pnpm --filter @keyflare/server db:studio",
-    "setup": "pnpm install && pnpm --filter @keyflare/cli build:fast",
+    "setup": "pnpm install && pnpm --filter @keyflare/cli build:fast && pnpm install",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "types": "pnpm --filter @keyflare/server cf-typegen",
     "kfl": "tsx packages/cli/src/index.ts",
-    "deploy": "pnpm -F @keyflare/server run deploy"
+    "deploy": "pnpm -F @keyflare/server run deploy",
+    "docs:dev": "cd docs && mintlify dev --port 3333",
+    "docs:build": "mintlify build docs",
+    "docs:openapi": "pnpm --filter @keyflare/server run generate:openapi"
   },
   "engines": {
     "node": ">=24.0.0",
@@ -25,6 +28,7 @@
     "tsx": "^4.21.0"
   },
   "devDependencies": {
+    "mintlify": "^4.2.417",
     "oxlint": "^1.51.0"
   }
 }

@@ -1,32 +1,78 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "linden",
-  "name": "Documentation",
+  "name": "Keyflare",
+  "logo": {
+    "light": "/assets/logo-light.svg",
+    "dark": "/assets/logo-dark.svg"
+  },
+  "favicon": "/assets/favicon.svg",
   "colors": {
-    "primary": "#0D9373",
-    "light": "#4bb28c",
-    "dark": "#4bc377"
+    "primary": "#F97316",
+    "light": "#FB923C",
+    "dark": "#EA580C"
+  },
+  "topbarLinks": [
+    { "name": "GitHub", "url": "https://github.com/keyflare/keyflare" },
+    { "name": "NPM", "url": "https://www.npmjs.com/package/@keyflare/cli" }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "/getting-started/quickstart"
   },
   "navigation": {
     "tabs": [
       {
-        "tab": "Getting Started",
-        "pages": [
-          "test"
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/introduction",
+              "getting-started/quickstart",
+              "getting-started/requirements"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/projects",
+              "guides/secrets",
+              "guides/api-keys",
+              "guides/local-development",
+              "guides/deployment"
+            ]
+          }
         ]
       },
       {
-        "tab": "CLI",
+        "tab": "CLI Reference",
         "pages": [
-          "test-1"
+          "cli/overview"
         ]
       },
       {
         "tab": "API Reference",
+        "openapi": "openapi.json"
+      },
+      {
+        "tab": "Architecture",
         "pages": [
-          "test-2"
+          "architecture/overview",
+          "architecture/security",
+          "architecture/encryption"
+        ]
+      },
+      {
+        "tab": "Contributing",
+        "pages": [
+          "contributing/development",
+          "contributing/testing"
         ]
       }
     ]
+  },
+  "api": {
+    "baseUrl": "https://keyflare.YOUR_ACCOUNT.workers.dev"
   }
 }
