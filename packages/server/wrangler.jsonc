@@ -16,17 +16,5 @@
       "database_name": "keyflare",
       "migrations_dir": "migrations"
     }
-  ],
-  // Alias for bundled CLI package - resolves @keyflare/shared from sibling folder
-  "rules": [
-    {
-      "type": "ESModule",
-      "globs": ["**/*.ts"],
-      "esbuild": {
-        "alias": {
-          "@keyflare/shared": "../shared/dist/index.js"
-        }
-      }
-    }
   ]
 }

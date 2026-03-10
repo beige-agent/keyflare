@@ -13,7 +13,6 @@ const sharedDest = path.join(cliRoot, "dist", "shared");
 const serverFilesToCopy = [
   "src",
   "migrations",
-  "wrangler.jsonc",
   "package.json",
   "tsconfig.json",
 ];
@@ -50,6 +49,40 @@ const serverPackageJson = JSON.parse(fs.readFileSync(serverPackageJsonPath, "utf
 serverPackageJson.dependencies["@keyflare/shared"] = "file:../shared";
 fs.writeFileSync(serverPackageJsonPath, JSON.stringify(serverPackageJson, null, 2));
 console.log("Updated server/package.json to use local @keyflare/shared");
+
+const wranglerConfig = {
+  name: "keyflare",
+  main: "src/index.ts",
+  compatibility_date: "2026-03-07",
+  compatibility_flags: ["nodejs_compat"],
+  observability: {
+    enabled: true,
+    logs: {
+      enabled: true,
+    },
+  },
+  d1_databases: [
+    {
+      binding: "DB_BINDING",
+      database_name: "keyflare",
+      migrations_dir: "migrations",
+    },
+  ],
+  rules: [
+    {
+      type: "ESModule",
+      globs: ["**/*.ts"],
+      esbuild: {
+        alias: {
+          "@keyflare/shared": "../shared/dist/index.js",
+        },
+      },
+    },
+  ],
+};
+const wranglerPath = path.join(serverDest, "wrangler.jsonc");
+fs.writeFileSync(wranglerPath, JSON.stringify(wranglerConfig, null, 2));
+console.log("Created wrangler.jsonc with @keyflare/shared alias");
 
 fs.mkdirSync(sharedDest, { recursive: true });
 
