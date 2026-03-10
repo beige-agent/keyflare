@@ -2,10 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "linden",
   "name": "Keyflare",
-  "logo": {
-    "light": "/assets/logo-light.svg",
-    "dark": "/assets/logo-dark.svg"
-  },
+  "logo": "/assets/logo.png",
   "favicon": "/assets/favicon.png",
   "colors": {
     "primary": "#F97316",
@@ -21,10 +18,11 @@
     "url": "/getting-started/quickstart"
   },
   "navbar": {
-  "primary": {
-    "type": "github",
-    "href": "https://github.com/keyflare-labs/keyflare"
-    }
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/keyflare-labs/keyflare"
+    },
+    "links": []
   },
   "navigation": {
     "tabs": [
@@ -87,5 +85,6 @@
   },
   "api": {
     "baseUrl": "https://keyflare.YOUR_ACCOUNT.workers.dev"
-  }
+  },
+  "description": "Keyflare"
 }
