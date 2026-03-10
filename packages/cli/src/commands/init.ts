@@ -525,6 +525,11 @@ function buildEphemeralConfig(databaseId: string, name: string): string {
   // Set the worker name
   config.name = name;
 
+  // Make main path absolute so wrangler can find it from the temp config location
+  if (typeof config.main === "string") {
+    config.main = path.join(serverDir(), config.main);
+  }
+
   const databases = config.d1_databases as Array<Record<string, unknown>>;
   if (!Array.isArray(databases) || databases.length === 0) {
     throw new Error("wrangler.jsonc has no d1_databases entry");
@@ -665,6 +670,10 @@ export async function runInit(options: {
       process.exit(1);
     }
     config.name = name;
+    // Make main path absolute so wrangler can find it from the temp config location
+    if (typeof config.main === "string") {
+      config.main = path.join(serverDir(), config.main);
+    }
     const databases = config.d1_databases as Array<Record<string, unknown>>;
     if (Array.isArray(databases) && databases.length > 0) {
       databases[0].database_name = name;
