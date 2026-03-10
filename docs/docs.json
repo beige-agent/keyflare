@@ -20,6 +20,12 @@
     "name": "Get Started",
     "url": "/getting-started/quickstart"
   },
+  "navbar": {
+  "primary": {
+    "type": "github",
+    "href": "https://github.com/your-org/your-repo"
+    }
+  },
   "navigation": {
     "tabs": [
       {
@@ -42,6 +48,21 @@
               "guides/local-development",
               "guides/deployment"
             ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/security",
+              "architecture/encryption"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/development",
+              "contributing/testing"
+            ]
           }
         ]
       },
@@ -54,21 +75,6 @@
       {
         "tab": "API Reference",
         "openapi": "openapi.json"
-      },
-      {
-        "tab": "Architecture",
-        "pages": [
-          "architecture/overview",
-          "architecture/security",
-          "architecture/encryption"
-        ]
-      },
-      {
-        "tab": "Contributing",
-        "pages": [
-          "contributing/development",
-          "contributing/testing"
-        ]
       }
     ]
   },

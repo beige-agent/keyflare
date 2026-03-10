@@ -1,23 +1,21 @@
 ---
-title: Security Model
-description: Threat model and security architecture
+title: "Security Model"
+description: "Threat model and security architecture"
 sidebar_position: 2
 ---
-
-# Security Model
 
 Keyflare's security architecture is designed around zero trust storage and minimal attack surface.
 
 ## Threat Model
 
-| Threat | Mitigation |
-|--------|-----------|
-| D1 database dump/leak | Secret values and keys are AES-256-GCM encrypted. API keys are hashed. |
-| API key theft | Keys are scoped. System keys only access specific project:environment pairs. |
-| Network interception | All traffic is TLS-encrypted (HTTPS enforced by Cloudflare). |
-| Master key compromise | Single point of failure by design. See [Master Key Management](#master-key-management). |
-| Brute-force key guessing | API keys are 256-bit random. Keyspace is 2^256 — infeasible. |
-| Insider threat (DB admin) | Encrypted data is unreadable without master key (Worker secret). |
+| Threat                    | Mitigation                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| D1 database dump/leak     | Secret values and keys are AES-256-GCM encrypted. API keys are hashed.                  |
+| API key theft             | Keys are scoped. System keys only access specific project:environment pairs.            |
+| Network interception      | All traffic is TLS-encrypted (HTTPS enforced by Cloudflare).                            |
+| Master key compromise     | Single point of failure by design. See [Master Key Management](#master-key-management). |
+| Brute-force key guessing  | API keys are 256-bit random. Keyspace is 2^256 — infeasible.                            |
+| Insider threat (DB admin) | Encrypted data is unreadable without master key (Worker secret).                        |
 
 ## Security Boundaries
 
@@ -70,13 +68,14 @@ graph TB
 
 ### Key Format
 
-```
+```text
 kfl_user_<32 hex chars>    # User key — 128 bits entropy
 kfl_sys_<32 hex chars>     # System key — 128 bits entropy
 ```
 
 Examples:
-```
+
+```text
 kfl_user_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
 kfl_sys_f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3
 ```
@@ -108,11 +107,11 @@ flowchart TD
 
 ### Permission Levels
 
-| | Read | Write | Manage Projects | Manage Keys |
-|---|:---:|:---:|:---:|:---:|
-| **User key** | ✅ | ✅ | ✅ | ✅ |
-| **System key** — `read` | ✅ (scoped) | ❌ | ❌ | ❌ |
-| **System key** — `readwrite` | ✅ (scoped) | ✅ (scoped) | ❌ | ❌ |
+|                              | Read       | Write      | Manage Projects | Manage Keys |
+| ---------------------------- | :--------: | :--------: | :-------------: | :---------: |
+| **User key**                 | ✅          | ✅          | ✅               | ✅           |
+| **System key** — `read`      | ✅ (scoped) | ❌          | ❌               | ❌           |
+| **System key** — `readwrite` | ✅ (scoped) | ✅ (scoped) | ❌               | ❌           |
 
 ## Master Key Management
 
@@ -128,15 +127,16 @@ The master key is the single root of trust. **If lost, all encrypted data is per
 
 ### Master Key Format
 
-| Property | Requirement |
-|----------|-------------|
-| Encoding | Standard base64 (RFC 4648) |
-| Length | 44 characters (with padding) |
-| Decoded size | Exactly 32 bytes |
-| Entropy | 256 bits |
+| Property     | Requirement                  |
+| ------------ | ---------------------------- |
+| Encoding     | Standard base64 (RFC 4648)   |
+| Length       | 44 characters (with padding) |
+| Decoded size | Exactly 32 bytes             |
+| Entropy      | 256 bits                     |
 
 Example:
-```
+
+```text
 K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols=
 ```
 
@@ -152,17 +152,17 @@ Or let `kfl init` generate one automatically.
 ### Update Behavior
 
 When running `kfl init` on an existing deployment:
+
 - **Master key is NEVER changed** — even if `--masterkey` is provided
 - This prevents catastrophic data loss from accidental key rotation
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Encryption Details" href="/architecture/encryption">
+  <Card href="/architecture/encryption" title="Encryption Details">
     Deep dive into the crypto implementation.
   </Card>
-
-  <Card title="API Keys" href="/guides/api-keys">
+  <Card href="/guides/api-keys" title="API Keys">
     Learn how to create and manage API keys.
   </Card>
 </CardGroup>
