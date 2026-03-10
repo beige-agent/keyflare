@@ -17,7 +17,8 @@
     "deploy": "pnpm -F @keyflare/server run deploy",
     "docs:dev": "cd docs && mintlify dev --port 3333",
     "docs:build": "mintlify build docs",
-    "docs:openapi": "pnpm --filter @keyflare/server run generate:openapi"
+    "docs:openapi": "pnpm --filter @keyflare/server run generate:openapi",
+    "cli:localpack": "pnpm i --frozen-lockfile && pnpm run build && pnpm pack ./packages/cli"
   },
   "engines": {
     "node": ">=24.0.0",
