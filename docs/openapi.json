@@ -108,6 +108,46 @@
       }
     },
     "/bootstrap": {
+      "get": {
+        "operationId": "getBootstrap",
+        "description": "Check if bootstrap has been completed (whether any API keys exist)",
+        "tags": [
+          "Bootstrap"
+        ],
+        "responses": {
+          "200": {
+            "description": "Bootstrap status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "initialized": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "initialized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "operationId": "postBootstrap",
         "description": "Create the first user API key. Only works when no keys exist in the database.",
