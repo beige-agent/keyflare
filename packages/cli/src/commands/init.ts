@@ -73,6 +73,38 @@ function validateMasterKey(key: string): { valid: boolean; error?: string } {
   return { valid: true };
 }
 
+const DEFAULT_NAME = "keyflare";
+
+function validateName(name: string): { valid: boolean; error?: string } {
+  debug("validating name: %s", name);
+  if (!name || typeof name !== "string") {
+    return { valid: false, error: "Name is required" };
+  }
+
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    return { valid: false, error: "Name cannot be empty" };
+  }
+
+  if (trimmed.length > 63) {
+    return { valid: false, error: "Name must be 63 characters or less" };
+  }
+
+  if (!/^[a-z][a-z0-9-]*$/.test(trimmed)) {
+    return {
+      valid: false,
+      error:
+        "Name must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens",
+    };
+  }
+
+  if (trimmed.endsWith("-")) {
+    return { valid: false, error: "Name cannot end with a hyphen" };
+  }
+
+  return { valid: true };
+}
+
 // ─── Auth helpers ─────────────────────────────────────────────
 
 /**
@@ -304,10 +336,13 @@ async function wrangler(
   });
 }
 
-async function workerHasMasterKeySecret(authEnv: Record<string, string>): Promise<boolean> {
-  debug("checking if worker has MASTER_KEY secret");
+async function workerHasMasterKeySecret(
+  authEnv: Record<string, string>,
+  name: string
+): Promise<boolean> {
+  debug("checking if worker has MASTER_KEY secret (name=%s)", name);
   const result = await wrangler(
-    ["secret", "list", "--name", "keyflare", "--format", "json"],
+    ["secret", "list", "--name", name, "--format", "json"],
     authEnv,
     serverDir(),
     {
@@ -335,14 +370,17 @@ async function workerHasMasterKeySecret(authEnv: Record<string, string>): Promis
 // ─── Worker / D1 discovery helpers ────────────────────────────
 
 /**
- * Returns true if the "keyflare" worker already has at least one deployment
+ * Returns true if the specified worker already has at least one deployment
  * on the account. Uses exit-code detection: wrangler exits 1 with code 10007
  * when the worker does not exist.
  */
-async function checkWorkerExists(authEnv: Record<string, string>): Promise<boolean> {
-  debug("checking if worker 'keyflare' exists via deployments list");
+async function checkWorkerExists(
+  authEnv: Record<string, string>,
+  name: string
+): Promise<boolean> {
+  debug("checking if worker '%s' exists via deployments list", name);
   const result = await wrangler(
-    ["deployments", "list", "--name", "keyflare", "--json"],
+    ["deployments", "list", "--name", name, "--json"],
     authEnv,
     serverDir(),
     { ignoreError: true }
@@ -365,22 +403,25 @@ async function checkWorkerExists(authEnv: Record<string, string>): Promise<boole
 }
 
 /**
- * Reads the D1 database_id that is currently bound to the live "keyflare"
- * worker by inspecting the latest deployment's version bindings.
+ * Reads the D1 database_id that is currently bound to the live worker
+ * by inspecting the latest deployment's version bindings.
  *
  * Flow:
- *   1. wrangler deployments list --name keyflare --json
+ *   1. wrangler deployments list --name <name> --json
  *      → pick the last entry (most recent), read versions[0].version_id
- *   2. wrangler versions view <version_id> --name keyflare --json
+ *   2. wrangler versions view <version_id> --name <name> --json
  *      → find the binding where type === "d1", return its database_id
  *
  * Throws if the worker has no deployments or no D1 binding.
  */
-async function resolveD1DatabaseId(authEnv: Record<string, string>): Promise<string> {
-  debug("resolving D1 database_id from live worker bindings");
+async function resolveD1DatabaseId(
+  authEnv: Record<string, string>,
+  name: string
+): Promise<string> {
+  debug("resolving D1 database_id from live worker bindings (name=%s)", name);
 
   const listResult = await wrangler(
-    ["deployments", "list", "--name", "keyflare", "--json"],
+    ["deployments", "list", "--name", name, "--json"],
     authEnv,
     serverDir()
   );
@@ -394,7 +435,7 @@ async function resolveD1DatabaseId(authEnv: Record<string, string>): Promise<str
   }
 
   if (!Array.isArray(deployments) || deployments.length === 0) {
-    throw new Error("No deployments found for worker 'keyflare'");
+    throw new Error(`No deployments found for worker '${name}'`);
   }
 
   const latest = deployments[deployments.length - 1];
@@ -405,7 +446,7 @@ async function resolveD1DatabaseId(authEnv: Record<string, string>): Promise<str
   debug("latest version_id=%s", versionId);
 
   const viewResult = await wrangler(
-    ["versions", "view", versionId, "--name", "keyflare", "--json"],
+    ["versions", "view", versionId, "--name", name, "--json"],
     authEnv,
     serverDir()
   );
@@ -422,7 +463,7 @@ async function resolveD1DatabaseId(authEnv: Record<string, string>): Promise<str
   const d1Binding = version.resources?.bindings?.find((b) => b.type === "d1");
   if (!d1Binding?.database_id) {
     throw new Error(
-      "No D1 binding found on worker 'keyflare'. " +
+      `No D1 binding found on worker '${name}'. ` +
         "Ensure the wrangler.jsonc d1_databases config is present before deploying."
     );
   }
@@ -432,7 +473,7 @@ async function resolveD1DatabaseId(authEnv: Record<string, string>): Promise<str
 }
 
 /**
- * Reads wrangler.jsonc, injects the resolved database_id, and writes the
+ * Reads wrangler.jsonc, injects the resolved database_id and name, and writes the
  * result to a temporary file. Returns the temp file path.
  *
  * The caller is responsible for deleting the file when done (use a
@@ -441,9 +482,14 @@ async function resolveD1DatabaseId(authEnv: Record<string, string>): Promise<str
  * The file uses JSONC (with // comments). We strip line comments before
  * parsing, then write back as standard JSON into the temp file.
  */
-function buildEphemeralConfig(databaseId: string): string {
+function buildEphemeralConfig(databaseId: string, name: string): string {
   const configPath = path.join(serverDir(), "wrangler.jsonc");
-  debug("building ephemeral config from %s with database_id=%s", configPath, databaseId);
+  debug(
+    "building ephemeral config from %s with database_id=%s name=%s",
+    configPath,
+    databaseId,
+    name
+  );
 
   const raw = fs.readFileSync(configPath, "utf-8");
 
@@ -457,15 +503,22 @@ function buildEphemeralConfig(databaseId: string): string {
     throw new Error(`Failed to parse wrangler.jsonc: ${e.message}`);
   }
 
+  // Set the worker name
+  config.name = name;
+
   const databases = config.d1_databases as Array<Record<string, unknown>>;
   if (!Array.isArray(databases) || databases.length === 0) {
     throw new Error("wrangler.jsonc has no d1_databases entry");
   }
 
   databases[0].database_id = databaseId;
+  databases[0].database_name = name;
   // migrations_dir is relative in the source config; make it absolute so that
   // wrangler resolves it correctly when -c points at a file in os.tmpdir().
-  databases[0].migrations_dir = path.join(serverDir(), String(databases[0].migrations_dir ?? "migrations"));
+  databases[0].migrations_dir = path.join(
+    serverDir(),
+    String(databases[0].migrations_dir ?? "migrations")
+  );
 
   const tmpPath = path.join(os.tmpdir(), `keyflare-wrangler-${Date.now()}.json`);
   fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
@@ -475,9 +528,33 @@ function buildEphemeralConfig(databaseId: string): string {
 
 // ─── kfl init (remote deploy) ─────────────────────────────────
 
-export async function runInit(options: { force?: boolean; yes?: boolean; masterKey?: string }) {
-  debug("runInit called force=%s masterKeyProvided=%s", Boolean(options.force), Boolean(options.masterKey));
+export async function runInit(options: {
+  force?: boolean;
+  yes?: boolean;
+  name?: string;
+  masterKey?: string;
+}) {
+  debug(
+    "runInit called force=%s name=%s masterKeyProvided=%s",
+    Boolean(options.force),
+    options.name ?? DEFAULT_NAME,
+    Boolean(options.masterKey)
+  );
   log(bold("\n🔥 Keyflare — Initial Setup\n"));
+
+  // Validate and resolve name
+  const name = options.name?.trim() || DEFAULT_NAME;
+  if (options.name) {
+    const validation = validateName(options.name);
+    if (!validation.valid) {
+      error(`Invalid name: ${validation.error}`);
+      process.exit(1);
+    }
+    debug("using custom name: %s", name);
+    if (name !== DEFAULT_NAME) {
+      log(dim(`Using name: ${name}\n`));
+    }
+  }
 
   // Validate custom master key if provided
   let customMasterKey: string | undefined;
@@ -489,7 +566,7 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
     }
     customMasterKey = options.masterKey.trim();
     debug("custom master key accepted (%s)", redact(customMasterKey));
-    log(dim("Using custom master key provided via --masterkey flag\n"));
+    log(dim("Using custom master key provided via --master-key flag\n"));
   }
 
   // ── Step 1: Cloudflare auth
@@ -525,27 +602,61 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
   }
 
   // ── Step 2: Check if the worker already exists
-  const workerExists = await checkWorkerExists(authEnv);
+  const workerExists = await checkWorkerExists(authEnv, name);
   debug("worker pre-exists=%s", workerExists);
 
-  // ── Step 3: Resolve D1 database_id and build an ephemeral wrangler config
+  // ── Step 3: Deploy the worker
+  //
+  // When using a custom name, we need to build an ephemeral config with the
+  // custom name before deploying. For the default name, we can deploy directly
+  // with wrangler.jsonc and resolve the database_id after.
   //
   // On first deploy the worker doesn't exist yet, so we deploy first with the
   // base config (no database_id), then resolve the ID from the live bindings.
   // On re-runs we can resolve before deploying, but deploying first is simpler
   // and fully idempotent either way.
-  //
-  // The ephemeral config is a temp file that mirrors wrangler.jsonc but with
-  // database_id injected. It is passed via -c to deploy and migrations so that
-  // wrangler.jsonc is never modified.
 
-  // First deploy — needed on first run so the D1 binding is created by Cloudflare.
+  let databaseId: string | undefined;
+  let ephemeralConfigPath: string | undefined;
+
+  // If using a custom name, we need to build the ephemeral config before deploy
+  if (name !== DEFAULT_NAME) {
+    // For custom names, build config without database_id first (will be resolved after deploy)
+    const tmpPath = path.join(os.tmpdir(), `keyflare-wrangler-${Date.now()}.json`);
+    const configPath = path.join(serverDir(), "wrangler.jsonc");
+    const raw = fs.readFileSync(configPath, "utf-8");
+    const stripped = raw.replace(/\/\/.*$/gm, "");
+    let config: Record<string, unknown>;
+    try {
+      config = JSON.parse(stripped) as Record<string, unknown>;
+    } catch (e: any) {
+      error(`Failed to parse wrangler.jsonc: ${e.message}`);
+      process.exit(1);
+    }
+    config.name = name;
+    const databases = config.d1_databases as Array<Record<string, unknown>>;
+    if (Array.isArray(databases) && databases.length > 0) {
+      databases[0].database_name = name;
+      databases[0].migrations_dir = path.join(
+        serverDir(),
+        String(databases[0].migrations_dir ?? "migrations")
+      );
+    }
+    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    ephemeralConfigPath = tmpPath;
+    debug("ephemeral config for custom name written to %s", tmpPath);
+  }
+
+  // Deploy the worker
   const deploySpinner = ora(
-    workerExists ? "Redeploying Keyflare Worker..." : "Deploying Keyflare Worker..."
+    workerExists ? `Redeploying ${name} Worker...` : `Deploying ${name} Worker...`
   ).start();
   let workerUrl = "";
   try {
-    const deployOutput = await wrangler(["deploy"], authEnv, serverDir());
+    const deployArgs = ephemeralConfigPath
+      ? ["deploy", "-c", ephemeralConfigPath]
+      : ["deploy"];
+    const deployOutput = await wrangler(deployArgs, authEnv, serverDir());
     const urlMatch = deployOutput.stdout.match(/https:\/\/[\w.-]+\.workers\.dev/);
     workerUrl = urlMatch?.[0] ?? "";
     debug("deploy completed workerUrl=%s", workerUrl || "<not parsed>");
@@ -561,16 +672,24 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
   // Always reads from Cloudflare — local wrangler.jsonc cannot be trusted
   // since another machine or team member may have redeployed.
   const d1Spinner = ora("Resolving D1 database binding...").start();
-  let databaseId: string;
-  let ephemeralConfigPath: string;
   try {
-    databaseId = await resolveD1DatabaseId(authEnv);
-    ephemeralConfigPath = buildEphemeralConfig(databaseId);
+    databaseId = await resolveD1DatabaseId(authEnv, name);
     d1Spinner.succeed(`D1 database resolved (id: ${dim(databaseId)})`);
   } catch (err: any) {
     d1Spinner.fail(`Failed to resolve D1 database: ${err.message}`);
     process.exit(1);
   }
+
+  // Build or rebuild ephemeral config with the resolved database_id
+  if (ephemeralConfigPath) {
+    // Clean up the previous ephemeral config and rebuild with database_id
+    try {
+      fs.unlinkSync(ephemeralConfigPath);
+    } catch {
+      /* ignore */
+    }
+  }
+  ephemeralConfigPath = buildEphemeralConfig(databaseId, name);
 
   // masterKeyToDisplay is set inside the try block below and read in the
   // summary block after — declared here so it survives the try/finally scope.
@@ -579,7 +698,7 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
   try {
     // ── Step 4: Ensure MASTER_KEY exists (never overwrite)
     const checkSecretSpinner = ora("Checking Worker secrets...").start();
-    const hasExistingMasterKey = await workerHasMasterKeySecret(authEnv);
+    const hasExistingMasterKey = await workerHasMasterKeySecret(authEnv, name);
     checkSecretSpinner.succeed(
       hasExistingMasterKey
         ? "Found existing MASTER_KEY secret"
@@ -589,7 +708,7 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
     if (hasExistingMasterKey) {
       if (customMasterKey) {
         warn(
-          "MASTER_KEY already exists on the worker. --masterkey was ignored to avoid overriding it."
+          "MASTER_KEY already exists on the worker. --master-key was ignored to avoid overriding it."
         );
       }
     } else {
@@ -600,7 +719,7 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
       try {
         const result = spawnSync(
           wranglerBin(),
-          ["secret", "put", "MASTER_KEY"],
+          ["secret", "put", "MASTER_KEY", "--name", name],
           {
             stdio: ["pipe", "pipe", "pipe"],
             cwd: serverDir(),
@@ -627,7 +746,7 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
     const migrateSpinner = ora("Running database migrations...").start();
     try {
       await wrangler(
-        ["d1", "migrations", "apply", "keyflare", "--remote", "-c", ephemeralConfigPath],
+        ["d1", "migrations", "apply", name, "--remote", "-c", ephemeralConfigPath],
         authEnv,
         serverDir()
       );
@@ -648,17 +767,19 @@ export async function runInit(options: { force?: boolean; yes?: boolean; masterK
     // Best-effort cleanup of the ephemeral config.
     // Note: process.exit() bypasses finally — acceptable since the OS reclaims
     // temp files. For all normal (non-exit) paths this runs correctly.
-    try {
-      fs.unlinkSync(ephemeralConfigPath);
-      debug("ephemeral config deleted: %s", ephemeralConfigPath);
-    } catch {
-      // ignore
+    if (ephemeralConfigPath) {
+      try {
+        fs.unlinkSync(ephemeralConfigPath);
+        debug("ephemeral config deleted: %s", ephemeralConfigPath);
+      } catch {
+        // ignore
+      }
     }
   }
 
   // ── Step 6: Bootstrap — create first admin key (skipped if already done)
   const bootstrapSpinner = ora("Creating user key...").start();
-  const apiUrl = workerUrl || `https://keyflare.workers.dev`;
+  const apiUrl = workerUrl || `https://${name}.workers.dev`;
   debug("bootstrap using apiUrl=%s", apiUrl);
 
   // Temporarily set the API URL to bootstrap

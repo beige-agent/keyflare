@@ -37,19 +37,29 @@ npx @keyflare/cli <command>
 Deploy or update Keyflare on your Cloudflare account.
 
 ```bash
-kfl init [--force] [-y] [--master-key <key>]
+kfl init [--force] [-y] [--name <name>] [--master-key <key>]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--force` | Reserved for compatibility (currently no-op) |
 | `-y, --yes` | Skip confirmation prompts (auto-accept) |
+| `--name <name>` | Worker and database name (default: `keyflare`). Must start with a lowercase letter, contain only lowercase letters, numbers, and hyphens, and be 63 characters or less. |
 | `--master-key <key>` | Custom master key (base64-encoded 256-bit) |
 
 **Authentication:**
 - Reuses existing Wrangler session when available
 - Falls back to `CLOUDFLARE_API_TOKEN` environment variable
 - Prompts for OAuth browser login or API token if neither available
+
+**Multiple Instances:**
+
+You can deploy multiple Keyflare instances by using different names:
+
+```bash
+kfl init --name keyflare-prod
+kfl init --name keyflare-staging
+```
 
 ---
 

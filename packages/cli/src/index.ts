@@ -63,6 +63,10 @@ program
   .option("--force", "Re-run even if already initialised")
   .option("-y, --yes", "Skip confirmation prompts (auto-accept)")
   .option(
+    "--name <name>",
+    "Worker and database name (default: keyflare). Must be alphanumeric with hyphens, max 63 chars."
+  )
+  .option(
     "--master-key <key>",
     "Custom master key (base64-encoded 256-bit key). If not provided, a random key is generated. " +
       "Example: K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols="
