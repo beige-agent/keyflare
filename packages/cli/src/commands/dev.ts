@@ -19,7 +19,7 @@ import type { BootstrapResponse } from "@keyflare/shared";
 import { api, KeyflareApiError } from "../api/client.js";
 import { writeConfig, writeApiKey } from "../config.js";
 import { makeDebug, redact } from "../debug.js";
-import { log, warn, bold, dim } from "../output/log.js";
+import { log, warn, success, bold, dim } from "../output/log.js";
 
 const LOCAL_API_URL = "http://localhost:8787";
 const debug = makeDebug("dev");
@@ -176,7 +176,7 @@ export async function runDevInit(options: { force?: boolean } = {}) {
   serverSpinner.succeed(`Local server ready at ${bold(LOCAL_API_URL)}`);
 
   // ── Step 4: Bootstrap
-  const bootstrapSpinner = ora("Creating local admin API key...").start();
+  const bootstrapSpinner = ora("Creating local user key...").start();
   process.env.KEYFLARE_API_URL = LOCAL_API_URL;
 
   let adminKey: string;
@@ -184,7 +184,7 @@ export async function runDevInit(options: { force?: boolean } = {}) {
     const data = await api.post<BootstrapResponse>("/bootstrap");
     adminKey = data.key;
     debug("local bootstrap created admin key (%s)", redact(adminKey));
-    bootstrapSpinner.succeed("Admin API key created");
+    bootstrapSpinner.succeed("User key created");
   } catch (err: any) {
     if (err instanceof KeyflareApiError && err.code === "CONFLICT") {
       bootstrapSpinner.succeed("Local instance already initialised — existing API keys preserved");
@@ -202,16 +202,26 @@ export async function runDevInit(options: { force?: boolean } = {}) {
 
   proc.kill();
 
-  // ── Step 5: Save config
   writeConfig({ apiUrl: LOCAL_API_URL });
   writeApiKey(adminKey);
   debug("local config and api key written");
 
+  log("");
+  success(bold("✓ Local setup complete!"));
+
+  if (adminKey) {
+    warn(bold("⚠️  IMPORTANT: Your user key (save this securely!)\n"));
+    log(`  ${bold(adminKey)}\n`);
+    log(
+      dim(
+        "This key is required for `kfl login`. It has been saved to\n" +
+          "~/.config/keyflare/credentials, but you should back it up securely.\n"
+      )
+    );
+  }
+
   log(
-    `\n${bold("✓ Local setup complete!")}\n\n` +
-    `Your admin API key ${dim("(saved to ~/.config/keyflare/)")}:\n\n` +
-    `  ${bold(adminKey)}\n\n` +
-    `Start the local server anytime with:\n\n` +
+    `\nStart the local server anytime with:\n\n` +
     `  ${bold("kfl dev server")}\n\n` +
     `Or set these env vars to use the local instance:\n\n` +
     `  ${bold(`KEYFLARE_LOCAL=true`)}\n` +

@@ -665,7 +665,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
   }
 
   // ── Step 6: Bootstrap — create first admin key (skipped if already done)
-  const bootstrapSpinner = ora("Creating admin API key...").start();
+  const bootstrapSpinner = ora("Creating user key...").start();
   const apiUrl = workerUrl || `https://keyflare.workers.dev`;
   debug("bootstrap using apiUrl=%s", apiUrl);
 
@@ -677,7 +677,7 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     const data = await api.post<BootstrapResponse>("/bootstrap");
     adminKey = data.key;
     debug("bootstrap created admin key (%s)", redact(adminKey));
-    bootstrapSpinner.succeed("Admin API key created");
+    bootstrapSpinner.succeed("User key created");
   } catch (err: any) {
     if (err instanceof KeyflareApiError && err.code === "CONFLICT") {
       // Normal on re-runs of kfl init — the instance is already initialised.
@@ -698,11 +698,6 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
 
   log("");
   success(bold("✓ Keyflare deployed successfully!"));
-  if (adminKey) {
-    log(
-      `\nYour admin API key ${dim("(shown once — already saved to ~/.config/keyflare/)")}:\n\n  ${bold(adminKey)}\n`
-    );
-  }
 
   if (masterKeyToDisplay) {
     warn(bold("⚠️  IMPORTANT: Your master key (save this securely!)\n"));
@@ -718,7 +713,20 @@ export async function runInit(options: { force?: boolean; masterKey?: string }) 
     log(dim("MASTER_KEY already exists on the worker and was left unchanged.\n"));
   }
 
-  log(dim(`API URL: ${apiUrl}`));
+  if (adminKey) {
+    warn(bold("⚠️  IMPORTANT: Your user key (save this securely!)\n"));
+    log(`  ${bold(adminKey)}\n`);
+    log(
+      dim(
+        "This key is required for `kfl login`. It has been saved to\n" +
+          "~/.config/keyflare/credentials, but you should back it up securely.\n" +
+          "If lost, recovery requires manual database operations.\n"
+      )
+    );
+    await confirm({ message: "I have saved the user key", default: false });
+  }
+
+  log(dim(`\nAPI URL: ${apiUrl}`));
   log(dim(`Config:  ~/.config/keyflare/\n`));
 }
 
