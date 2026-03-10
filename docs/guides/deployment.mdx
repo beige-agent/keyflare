@@ -16,13 +16,61 @@ kfl init
 
 This single command handles everything:
 1. Authenticates with Cloudflare (reuses existing session, or prompts for OAuth/API token)
-2. Checks whether the `keyflare` worker already exists on your account
+2. Checks whether the worker already exists on your account
 3. Deploys (or redeploys) the Worker via `wrangler deploy`
 4. Resolves the D1 `database_id` from the **live worker bindings** — reads directly from Cloudflare, never trusts local config
 5. Creates an ephemeral wrangler config with the resolved `database_id` (source `wrangler.jsonc` is never modified)
 6. Generates and stores the master key (skipped if one already exists)
 7. Applies database migrations using the resolved `database_id` explicitly
 8. Creates the first root API key (idempotent)
+
+## Multiple Instances
+
+You can deploy multiple Keyflare instances (e.g., for different environments or teams) using the `--name` flag:
+
+```bash
+# Production instance
+kfl init --name keyflare-prod
+
+# Staging instance
+kfl init --name keyflare-staging
+```
+
+Each instance gets its own:
+- Worker (e.g., `keyflare-prod.workers.dev`)
+- D1 database
+- Master key secret
+
+To target a specific instance, use its API URL:
+
+```bash
+kfl login
+# Enter: https://keyflare-prod.workers.dev
+```
+
+<Note>
+  Instance names must start with a lowercase letter, contain only lowercase letters, numbers, and hyphens, and be 63 characters or less.
+</Note>
+
+## Using an Existing D1 Database
+
+If you have a pre-existing D1 database (e.g., from a previous Keyflare instance or migration), you can bind to it using the `--d1id` flag:
+
+```bash
+kfl init --d1id 12345678-1234-1234-1234-123456789abc
+```
+
+This tells Keyflare to use the specified database instead of creating a new one. The deployment will:
+1. Build an ephemeral config with the provided `database_id`
+2. Deploy the worker bound to that database
+3. Run migrations against it (idempotent)
+
+**When to use:**
+- Migrating from another Keyflare instance
+- Restoring from a backup
+- Sharing a database across worker redeployments
+
+**Note:** The database must exist in the same Cloudflare account. If the UUID is invalid, deployment will fail with a clear error.
 
 ## Deployment Architecture
 
@@ -53,6 +101,9 @@ npm install -g @keyflare/cli@latest
 
 # Redeploy (idempotent)
 kfl init
+
+# For a custom-named instance
+kfl init --name keyflare-prod
 ```
 
 `kfl init` is idempotent. Re-running it:
@@ -64,7 +115,8 @@ kfl init
 <Note>
   Deleting the Worker does NOT delete the D1 database. To delete everything:
   ```bash
-  wrangler d1 delete keyflare
+  wrangler d1 delete keyflare        # default name
+  wrangler d1 delete keyflare-prod   # custom name
   ```
 </Note>
 

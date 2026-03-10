@@ -61,8 +61,17 @@ program
       "Supports OAuth (browser) and API token authentication."
   )
   .option("--force", "Re-run even if already initialised")
+  .option("-y, --yes", "Skip confirmation prompts (auto-accept)")
   .option(
-    "--masterkey <key>",
+    "--name <name>",
+    "Worker and database name (default: keyflare). Must be alphanumeric with hyphens, max 63 chars."
+  )
+  .option(
+    "--d1id <uuid>",
+    "Bind to an existing D1 database by UUID. If not provided, a new database is created automatically."
+  )
+  .option(
+    "--master-key <key>",
     "Custom master key (base64-encoded 256-bit key). If not provided, a random key is generated. " +
       "Example: K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols="
   )
