@@ -44,34 +44,20 @@ for (const file of serverFilesToCopy) {
   }
 }
 
-// Generate wrangler.jsonc with top-level alias to resolve @keyflare/shared
-// via esbuild during bundling. The alias path is relative to the server dir
-// (wrangler runs with cwd = serverDir).
-const wranglerConfig = {
-  name: "keyflare",
-  main: "src/index.ts",
-  compatibility_date: "2026-03-07",
-  compatibility_flags: ["nodejs_compat"],
-  alias: {
-    "@keyflare/shared": "../shared/dist/index.js",
-  },
-  observability: {
-    enabled: true,
-    logs: {
-      enabled: true,
-    },
-  },
-  d1_databases: [
-    {
-      binding: "DB_BINDING",
-      database_name: "keyflare",
-      migrations_dir: "migrations",
-    },
-  ],
+// Read the repo's wrangler.jsonc, strip comments, inject the alias for
+// @keyflare/shared so esbuild can resolve it from the bundled shared package,
+// then write it out as JSON. This keeps the generated config in sync with
+// any future changes to the source wrangler.jsonc (new bindings, vars, etc.).
+const wranglerSrcPath = path.join(serverSrc, "wrangler.jsonc");
+const wranglerRaw = fs.readFileSync(wranglerSrcPath, "utf-8");
+const wranglerStripped = wranglerRaw.replace(/\/\/.*$/gm, "");
+const wranglerConfig = JSON.parse(wranglerStripped) as Record<string, unknown>;
+wranglerConfig.alias = {
+  "@keyflare/shared": "../shared/dist/index.js",
 };
-const wranglerPath = path.join(serverDest, "wrangler.jsonc");
-fs.writeFileSync(wranglerPath, JSON.stringify(wranglerConfig, null, 2));
-console.log("Created wrangler.jsonc with @keyflare/shared alias");
+const wranglerDestPath = path.join(serverDest, "wrangler.jsonc");
+fs.writeFileSync(wranglerDestPath, JSON.stringify(wranglerConfig, null, 2));
+console.log("Created wrangler.jsonc (from repo source + @keyflare/shared alias)");
 
 fs.mkdirSync(sharedDest, { recursive: true });
 
