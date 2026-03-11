@@ -4,11 +4,12 @@
 [![NPM](https://nodei.co/npm/@keyflare/cli.png?compact=true)](https://npmjs.org/package/@keyflare/cli)
 
 **Open-source secrets manager built entirely on Cloudflare.**
+
 One Worker. One D1 database. One master key. Zero trust storage. CLI-based.
 
 ## What is Keyflare? 🔥
 
-Keyflare is a *free, self-hosted secrets manager* (like [Doppler](https://doppler.com) or [Infisical](https://infisical.com)) that runs entirely on Cloudflare's infrastructure — a single Worker + a single D1 database. All secrets are encrypted at rest with AES-256-GCM. You can use Cloudflare's **free plan** without any issues.
+Keyflare is a **free, self-hosted secrets manager** (like [Doppler](https://doppler.com) or [Infisical](https://infisical.com)) that runs entirely on Cloudflare's infrastructure — a single Worker + a single D1 database. All secrets are encrypted at rest with AES-256-GCM. You can use Cloudflare's **free plan** without any issues.
 
 ### Key Features
 
