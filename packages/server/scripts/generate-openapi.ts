@@ -53,7 +53,7 @@ async function main() {
         { name: "Bootstrap", description: "Initial setup endpoints" },
         { name: "Keys", description: "API key management" },
         { name: "Projects", description: "Project management" },
-        { name: "Configs", description: "Environment/config management" },
+        { name: "Environments", description: "Environment management" },
         { name: "Secrets", description: "Secret management" },
       ],
     },

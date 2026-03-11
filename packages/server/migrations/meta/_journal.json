@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1772729285928,
-      "tag": "0000_init",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1772927546068,
-      "tag": "0001_plaintext-project-config-names",
+      "when": 1773189003246,
+      "tag": "0000_bright_lilith",
       "breakpoints": true
     }
   ]

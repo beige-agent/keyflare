@@ -51,8 +51,8 @@
       "description": "Project management"
     },
     {
-      "name": "Configs",
-      "description": "Environment/config management"
+      "name": "Environments",
+      "description": "Environment management"
     },
     {
       "name": "Secrets",
@@ -1997,16 +1997,16 @@
         ]
       }
     },
-    "/projects/{project}/configs": {
+    "/projects/{project}/environments": {
       "get": {
-        "operationId": "getProjectsByProjectConfigs",
-        "description": "List all configs/environments in a project. System keys only see configs within their scope.",
+        "operationId": "getProjectsByProjectEnvironments",
+        "description": "List all environments in a project. System keys only see environments within their scope.",
         "tags": [
-          "Configs"
+          "Environments"
         ],
         "responses": {
           "200": {
-            "description": "List of configs",
+            "description": "List of environments",
             "content": {
               "application/json": {
                 "schema": {
@@ -2019,7 +2019,7 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "configs": {
+                        "environments": {
                           "type": "array",
                           "items": {
                             "type": "object",
@@ -2047,7 +2047,7 @@
                         }
                       },
                       "required": [
-                        "configs"
+                        "environments"
                       ]
                     }
                   },
@@ -2244,14 +2244,14 @@
         ]
       },
       "post": {
-        "operationId": "postProjectsByProjectConfigs",
-        "description": "Create a new environment/config within a project",
+        "operationId": "postProjectsByProjectEnvironments",
+        "description": "Create a new environment within a project",
         "tags": [
-          "Configs"
+          "Environments"
         ],
         "responses": {
           "201": {
-            "description": "Config created successfully",
+            "description": "Environment created successfully",
             "content": {
               "application/json": {
                 "schema": {
@@ -2564,16 +2564,16 @@
         ]
       }
     },
-    "/projects/{project}/configs/{config}": {
+    "/projects/{project}/environments/{environment}": {
       "delete": {
-        "operationId": "deleteProjectsByProjectConfigsByConfig",
-        "description": "Delete an environment/config and all its secrets",
+        "operationId": "deleteProjectsByProjectEnvironmentsByEnvironment",
+        "description": "Delete an environment and all its secrets",
         "tags": [
-          "Configs"
+          "Environments"
         ],
         "responses": {
           "200": {
-            "description": "Config deleted successfully",
+            "description": "Environment deleted successfully",
             "content": {
               "application/json": {
                 "schema": {
@@ -2841,16 +2841,16 @@
               "type": "string"
             },
             "in": "path",
-            "name": "config",
+            "name": "environment",
             "required": true
           }
         ]
       }
     },
-    "/projects/{project}/configs/{config}/secrets": {
+    "/projects/{project}/environments/{environment}/secrets": {
       "get": {
-        "operationId": "getProjectsByProjectConfigsByConfigSecrets",
-        "description": "Get all secrets for a config. Returns decrypted key-value pairs.",
+        "operationId": "getProjectsByProjectEnvironmentsByEnvironmentSecrets",
+        "description": "Get all secrets for an environment. Returns decrypted key-value pairs.",
         "tags": [
           "Secrets"
         ],
@@ -3119,14 +3119,14 @@
               "type": "string"
             },
             "in": "path",
-            "name": "config",
+            "name": "environment",
             "required": true
           }
         ]
       },
       "put": {
-        "operationId": "putProjectsByProjectConfigsByConfigSecrets",
-        "description": "Set all secrets for a config (full override). Deletes all existing secrets first!",
+        "operationId": "putProjectsByProjectEnvironmentsByEnvironmentSecrets",
+        "description": "Set all secrets for an environment (full override). Deletes all existing secrets first!",
         "tags": [
           "Secrets"
         ],
@@ -3151,14 +3151,14 @@
                         "project": {
                           "type": "string"
                         },
-                        "config": {
+                        "environment": {
                           "type": "string"
                         }
                       },
                       "required": [
                         "count",
                         "project",
-                        "config"
+                        "environment"
                       ]
                     }
                   },
@@ -3400,13 +3400,13 @@
               "type": "string"
             },
             "in": "path",
-            "name": "config",
+            "name": "environment",
             "required": true
           }
         ]
       },
       "patch": {
-        "operationId": "patchProjectsByProjectConfigsByConfigSecrets",
+        "operationId": "patchProjectsByProjectEnvironmentsByEnvironmentSecrets",
         "description": "Partially update secrets - set new/updated keys and/or delete specific keys",
         "tags": [
           "Secrets"
@@ -3681,7 +3681,7 @@
               "type": "string"
             },
             "in": "path",
-            "name": "config",
+            "name": "environment",
             "required": true
           }
         ]

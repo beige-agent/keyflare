@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0c9bd3bc-3a26-4acd-9a44-d7af12d99bfe",
+  "id": "e28eea9a-daca-4fda-81ef-e07c218d0795",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "api_keys": {
@@ -110,15 +110,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "name_encrypted": {
-          "name": "name_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name_hash": {
-          "name": "name_hash",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -133,11 +126,11 @@
         }
       },
       "indexes": {
-        "environments_project_id_name_hash_unique": {
-          "name": "environments_project_id_name_hash_unique",
+        "environments_project_id_name_unique": {
+          "name": "environments_project_id_name_unique",
           "columns": [
             "project_id",
-            "name_hash"
+            "name"
           ],
           "isUnique": true
         }
@@ -171,15 +164,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "name_encrypted": {
-          "name": "name_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name_hash": {
-          "name": "name_hash",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -194,10 +180,10 @@
         }
       },
       "indexes": {
-        "projects_name_hash_unique": {
-          "name": "projects_name_hash_unique",
+        "projects_name_unique": {
+          "name": "projects_name_unique",
           "columns": [
-            "name_hash"
+            "name"
           ],
           "isUnique": true
         }

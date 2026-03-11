@@ -85,5 +85,26 @@
   "api": {
     "baseUrl": "https://keyflare.YOUR_ACCOUNT.workers.dev"
   },
-  "description": "Keyflare"
+  "description": "Keyflare",
+  "background": {
+    "decoration": "gradient"
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs"
+  },
+  "icons": {
+    "library": "fontawesome"
+  },
+  "interaction": {
+    "drilldown": true
+  },
+  "metadata": {
+    "timestamp": false
+  },
+  "seo": {
+    "indexing": "navigable"
+  }
 }
