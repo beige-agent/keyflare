@@ -60,7 +60,6 @@ program
     "Bootstrap a new Keyflare deployment on Cloudflare. " +
       "Supports OAuth (browser) and API token authentication."
   )
-  .option("--force", "Re-run even if already initialised")
   .option("-y, --yes", "Skip confirmation prompts (auto-accept)")
   .option(
     "--name <name>",

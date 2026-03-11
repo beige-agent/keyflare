@@ -563,15 +563,13 @@ function buildEphemeralConfig(databaseId: string, name: string): string {
 // ─── kfl init (remote deploy) ─────────────────────────────────
 
 export async function runInit(options: {
-  force?: boolean;
   yes?: boolean;
   name?: string;
   d1id?: string;
   masterKey?: string;
 }) {
   debug(
-    "runInit called force=%s name=%s d1id=%s masterKeyProvided=%s",
-    Boolean(options.force),
+    "runInit called name=%s d1id=%s masterKeyProvided=%s",
     options.name ?? DEFAULT_NAME,
     options.d1id ?? "<auto>",
     Boolean(options.masterKey)

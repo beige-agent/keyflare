@@ -37,12 +37,11 @@ npx @keyflare/cli <command>
 Deploy or update Keyflare on your Cloudflare account.
 
 ```bash
-kfl init [--force] [-y] [--name <name>] [--d1id <uuid>] [--master-key <key>]
+kfl init [-y] [--name <name>] [--d1id <uuid>] [--master-key <key>]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--force` | Reserved for compatibility (currently no-op) |
 | `-y, --yes` | Skip confirmation prompts (auto-accept) |
 | `--name <name>` | Worker and database name (default: `keyflare`). Must start with a lowercase letter, contain only lowercase letters, numbers, and hyphens, and be 63 characters or less. |
 | `--d1id <uuid>` | Bind to an existing D1 database by UUID. Creates new DB if not provided (or uses the existing binding if a worker exists already). |
