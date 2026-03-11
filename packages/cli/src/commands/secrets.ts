@@ -63,14 +63,14 @@ function parseEnvFile(content: string): Record<string, string> {
   return result;
 }
 
-function secretsUrl(project: string, config: string) {
-  return `/projects/${project}/configs/${config}/secrets`;
+function secretsUrl(project: string, environment: string) {
+  return `/projects/${project}/environments/${environment}/secrets`;
 }
 
 // ─── List ─────────────────────────────────────────────────────────────────────
 
-export async function runSecretsList(project: string, config: string) {
-  const data = await api.get<GetSecretsResponse>(secretsUrl(project, config));
+export async function runSecretsList(project: string, environment: string) {
+  const data = await api.get<GetSecretsResponse>(secretsUrl(project, environment));
   const keys = Object.keys(data.secrets);
 
   if (keys.length === 0) {
@@ -90,12 +90,12 @@ export async function runSecretsList(project: string, config: string) {
 export async function runSecretsGet(
   key: string,
   project: string,
-  config: string
+  environment: string
 ) {
-  const data = await api.get<GetSecretsResponse>(secretsUrl(project, config));
+  const data = await api.get<GetSecretsResponse>(secretsUrl(project, environment));
   const value = data.secrets[key];
   if (value === undefined) {
-    error(`Secret "${key}" not found in ${project}/${config}`);
+    error(`Secret "${key}" not found in ${project}/${environment}`);
     process.exit(4);
   }
   log(value);
@@ -106,7 +106,7 @@ export async function runSecretsGet(
 export async function runSecretsSet(
   pairs: string[],
   project: string,
-  config: string
+  environment: string
 ) {
   const set: Record<string, string> = {};
   for (const pair of pairs) {
@@ -118,8 +118,8 @@ export async function runSecretsSet(
     set[pair.slice(0, idx)] = pair.slice(idx + 1);
   }
 
-  await api.patch<PatchSecretsResponse>(secretsUrl(project, config), { set });
-  success(`Set ${Object.keys(set).length} secret(s) in ${project}/${config}`);
+  await api.patch<PatchSecretsResponse>(secretsUrl(project, environment), { set });
+  success(`Set ${Object.keys(set).length} secret(s) in ${project}/${environment}`);
 }
 
 // ─── Delete ───────────────────────────────────────────────────────────────────
@@ -127,12 +127,12 @@ export async function runSecretsSet(
 export async function runSecretsDelete(
   key: string,
   project: string,
-  config: string
+  environment: string
 ) {
-  await api.patch<PatchSecretsResponse>(secretsUrl(project, config), {
+  await api.patch<PatchSecretsResponse>(secretsUrl(project, environment), {
     delete: [key],
   });
-  success(`Deleted secret "${key}" from ${project}/${config}`);
+  success(`Deleted secret "${key}" from ${project}/${environment}`);
 }
 
 // ─── Upload ───────────────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ export async function runSecretsDelete(
 export async function runUpload(
   file: string,
   project: string,
-  config: string,
+  environment: string,
   opts: { force?: boolean }
 ) {
   let content: string;
@@ -161,15 +161,15 @@ export async function runUpload(
     let currentCount = 0;
     try {
       const current = await api.get<GetSecretsResponse>(
-        secretsUrl(project, config)
+        secretsUrl(project, environment)
       );
       currentCount = Object.keys(current.secrets).length;
     } catch {
-      // ignore — might be a new config
+      // ignore — might be a new environment
     }
 
     const confirmed = await confirm({
-      message: `This will REPLACE all ${currentCount} secret(s) in ${project}/${config} with ${count} secret(s) from ${file}. Continue?`,
+      message: `This will REPLACE all ${currentCount} secret(s) in ${project}/${environment} with ${count} secret(s) from ${file}. Continue?`,
       default: false,
     });
     if (!confirmed) {
@@ -178,20 +178,20 @@ export async function runUpload(
     }
   }
 
-  const data = await api.put<SetSecretsResponse>(secretsUrl(project, config), {
+  const data = await api.put<SetSecretsResponse>(secretsUrl(project, environment), {
     secrets,
   });
-  success(`Uploaded ${data.count} secret(s) to ${project}/${config}`);
+  success(`Uploaded ${data.count} secret(s) to ${project}/${environment}`);
 }
 
 // ─── Download ─────────────────────────────────────────────────────────────────
 
 export async function runDownload(
   project: string,
-  config: string,
+  environment: string,
   opts: { format?: string; output?: string }
 ) {
-  const data = await api.get<GetSecretsResponse>(secretsUrl(project, config));
+  const data = await api.get<GetSecretsResponse>(secretsUrl(project, environment));
   const secrets = data.secrets;
   const fmt = opts.format ?? "env";
 
@@ -233,15 +233,15 @@ export async function runDownload(
 
 export async function runRun(
   project: string,
-  config: string,
+  environment: string,
   cmd: string[]
 ) {
   if (cmd.length === 0) {
-    error("No command provided. Usage: kfl run --project <p> --config <c> -- <command>");
+    error("No command provided. Usage: kfl run --project <p> --env <e> -- <command>");
     process.exit(1);
   }
 
-  const data = await api.get<GetSecretsResponse>(secretsUrl(project, config));
+  const data = await api.get<GetSecretsResponse>(secretsUrl(project, environment));
   const env = { ...process.env, ...data.secrets };
 
   const result = spawnSync(cmd[0], cmd.slice(1), {

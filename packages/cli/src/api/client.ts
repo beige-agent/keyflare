@@ -22,7 +22,6 @@ function baseUrl(): string {
   return url;
 }
 
-/** Explicit RPC client shape so we get typed usage without deep AppType inference. */
 interface KeyflareRpcClient {
   bootstrap: { $post: () => Promise<Response> };
   keys: {
@@ -38,19 +37,19 @@ interface KeyflareRpcClient {
     $post: (opts: { json: { name: string } }) => Promise<Response>;
     ":name": { $delete: (opts: { param: { name: string } }) => Promise<Response> };
     ":project": {
-      configs: {
+      environments: {
         $get: (opts: { param: { project: string } }) => Promise<Response>;
         $post: (opts: { param: { project: string }; json: { name: string } }) => Promise<Response>;
-        ":config": {
-          $delete: (opts: { param: { project: string; config: string } }) => Promise<Response>;
+        ":environment": {
+          $delete: (opts: { param: { project: string; environment: string } }) => Promise<Response>;
           secrets: {
-            $get: (opts: { param: { project: string; config: string } }) => Promise<Response>;
+            $get: (opts: { param: { project: string; environment: string } }) => Promise<Response>;
             $put: (opts: {
-              param: { project: string; config: string };
+              param: { project: string; environment: string };
               json: { secrets: Record<string, string> };
             }) => Promise<Response>;
             $patch: (opts: {
-              param: { project: string; config: string };
+              param: { project: string; environment: string };
               json: object;
             }) => Promise<Response>;
           };
@@ -83,29 +82,26 @@ async function unwrap<T>(resPromise: Promise<Response>): Promise<T> {
   return (json as { ok: true; data: T }).data;
 }
 
-/**
- * RPC-based API client. Same interface as before so commands are unchanged.
- */
 export const api = {
   get: <T>(path: string, apiKey?: string): Promise<T> => {
     debug("GET %s", path);
     const c = client(apiKey);
     if (path === "/keys") return unwrap<T>(c.keys.$get());
     if (path === "/projects") return unwrap<T>(c.projects.$get());
-    const projectConfigsMatch = path.match(/^\/projects\/([^/]+)\/configs$/);
-    if (projectConfigsMatch) {
-      const project = decodeURIComponent(projectConfigsMatch[1]);
-      return unwrap<T>(c.projects[":project"].configs.$get({ param: { project } }));
+    const projectEnvsMatch = path.match(/^\/projects\/([^/]+)\/environments$/);
+    if (projectEnvsMatch) {
+      const project = decodeURIComponent(projectEnvsMatch[1]);
+      return unwrap<T>(c.projects[":project"].environments.$get({ param: { project } }));
     }
     const secretsMatch = path.match(
-      /^\/projects\/([^/]+)\/configs\/([^/]+)\/secrets$/
+      /^\/projects\/([^/]+)\/environments\/([^/]+)\/secrets$/
     );
     if (secretsMatch) {
       const project = decodeURIComponent(secretsMatch[1]);
-      const config = decodeURIComponent(secretsMatch[2]);
+      const environment = decodeURIComponent(secretsMatch[2]);
       return unwrap<T>(
-        c.projects[":project"].configs[":config"].secrets.$get({
-          param: { project, config },
+        c.projects[":project"].environments[":environment"].secrets.$get({
+          param: { project, environment },
         })
       );
     }
@@ -134,11 +130,11 @@ export const api = {
       return unwrap<T>(c.keys.$post({ json: (body ?? {}) as object }));
     if (path === "/projects")
       return unwrap<T>(c.projects.$post({ json: (body ?? {}) as { name: string } }));
-    const projectConfigsMatch = path.match(/^\/projects\/([^/]+)\/configs$/);
-    if (projectConfigsMatch) {
-      const project = decodeURIComponent(projectConfigsMatch[1]);
+    const projectEnvsMatch = path.match(/^\/projects\/([^/]+)\/environments$/);
+    if (projectEnvsMatch) {
+      const project = decodeURIComponent(projectEnvsMatch[1]);
       return unwrap<T>(
-        c.projects[":project"].configs.$post({
+        c.projects[":project"].environments.$post({
           param: { project },
           json: (body ?? {}) as { name: string },
         })
@@ -176,14 +172,14 @@ export const api = {
       );
     }
     const secretsMatch = path.match(
-      /^\/projects\/([^/]+)\/configs\/([^/]+)\/secrets$/
+      /^\/projects\/([^/]+)\/environments\/([^/]+)\/secrets$/
     );
     if (secretsMatch) {
       const project = decodeURIComponent(secretsMatch[1]);
-      const config = decodeURIComponent(secretsMatch[2]);
+      const environment = decodeURIComponent(secretsMatch[2]);
       return unwrap<T>(
-        c.projects[":project"].configs[":config"].secrets.$put({
-          param: { project, config },
+        c.projects[":project"].environments[":environment"].secrets.$put({
+          param: { project, environment },
           json: body as { secrets: Record<string, string> },
         })
       );
@@ -213,14 +209,14 @@ export const api = {
     debug("PATCH %s bodyType=%s", path, typeof body);
     const c = client(apiKey);
     const secretsMatch = path.match(
-      /^\/projects\/([^/]+)\/configs\/([^/]+)\/secrets$/
+      /^\/projects\/([^/]+)\/environments\/([^/]+)\/secrets$/
     );
     if (secretsMatch) {
       const project = decodeURIComponent(secretsMatch[1]);
-      const config = decodeURIComponent(secretsMatch[2]);
+      const environment = decodeURIComponent(secretsMatch[2]);
       return unwrap<T>(
-        c.projects[":project"].configs[":config"].secrets.$patch({
-          param: { project, config },
+        c.projects[":project"].environments[":environment"].secrets.$patch({
+          param: { project, environment },
           json: body as object,
         })
       );
@@ -259,13 +255,13 @@ export const api = {
       const name = decodeURIComponent(projectMatch[1]);
       return unwrap<T>(c.projects[":name"].$delete({ param: { name } }));
     }
-    const configMatch = path.match(/^\/projects\/([^/]+)\/configs\/([^/]+)$/);
-    if (configMatch) {
-      const project = decodeURIComponent(configMatch[1]);
-      const config = decodeURIComponent(configMatch[2]);
+    const envMatch = path.match(/^\/projects\/([^/]+)\/environments\/([^/]+)$/);
+    if (envMatch) {
+      const project = decodeURIComponent(envMatch[1]);
+      const environment = decodeURIComponent(envMatch[2]);
       return unwrap<T>(
-        c.projects[":project"].configs[":config"].$delete({
-          param: { project, config },
+        c.projects[":project"].environments[":environment"].$delete({
+          param: { project, environment },
         })
       );
     }

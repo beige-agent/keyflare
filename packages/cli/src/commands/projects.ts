@@ -47,9 +47,9 @@ export async function runProjectsCreate(
     console.log(
       cyan("Next: add environments (e.g. dev and prod):") +
         "\n  " +
-        dim(`kfl configs create dev --project ${data.name}`) +
+        dim(`kfl env create dev --project ${data.name}`) +
         "\n  " +
-        dim(`kfl configs create prod --project ${data.name}`),
+        dim(`kfl env create prod --project ${data.name}`),
     );
   } else {
     success(`Project "${data.name}" created with environments: Dev, Prod`);
