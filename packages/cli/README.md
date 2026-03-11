@@ -35,16 +35,16 @@ This interactive command will:
 kfl projects create my-api
 
 # Create an environment inside the project
-kfl configs create production --project my-api
+kfl env create production --project my-api
 
 # Upload secrets from a .env file
-kfl upload .env.production --project my-api --config production
+kfl upload .env.production --project my-api --env production
 
 # Inject secrets into a command at runtime (no disk writes)
-kfl run --project my-api --config production -- npm start
+kfl run --project my-api --env production -- npm start
 
 # Download secrets as a .env file
-kfl download --project my-api --config production --output .env
+kfl download --project my-api --env production --output .env
 ```
 
 ### Configuration
@@ -56,7 +56,7 @@ The CLI stores its configuration (API URL and key) in `~/.config/keyflare/` afte
 | `KEYFLARE_API_KEY` | API key (overrides the credentials file) |
 | `KEYFLARE_API_URL` | API URL (overrides the config file) |
 | `KEYFLARE_PROJECT` | Default project |
-| `KEYFLARE_CONFIG` | Default config/environment |
+| `KEYFLARE_ENV` | Default environment |
 
 ### Local Development
 
@@ -89,7 +89,7 @@ Produces a bundled `dist/index.js` (ESM) that is referenced by the `kfl` bin ent
 |---------|-------------|
 | `kfl init` | Bootstrap a new Keyflare deployment |
 | `kfl projects list/create/delete` | Manage projects |
-| `kfl configs list/create/delete` | Manage environments |
+| `kfl env list/create/delete` | Manage environments |
 | `kfl secrets set/get/delete/list` | Manage individual secrets |
 | `kfl upload <file>` | Upload a `.env` file (full replace) |
 | `kfl download` | Download secrets (`.env`, JSON, YAML) |

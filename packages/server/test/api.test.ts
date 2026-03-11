@@ -261,7 +261,7 @@ describe("Keyflare API", () => {
     });
   });
 
-  // ─── Configs ───
+  // ─── Environments ───
   describe("Environments", () => {
     let userKey: string;
 
@@ -1078,7 +1078,7 @@ describe("Keyflare API", () => {
       const bootstrapRes = await post("/bootstrap");
       const userKey = ((await bootstrapRes.json()) as any).data.key;
 
-      // 2. Create project (environmentless so we control config names in this test)
+      // 2. Create project (environmentless so we control environment names in this test)
       const projRes = await post(
         "/projects",
         { name: "webapp", environmentless: true },
@@ -1086,7 +1086,7 @@ describe("Keyflare API", () => {
       );
       expect(projRes.status).toBe(201);
 
-      // 3. Create configs
+      // 3. Create environments
       await post(
         "/projects/webapp/environments",
         { name: "development" },
