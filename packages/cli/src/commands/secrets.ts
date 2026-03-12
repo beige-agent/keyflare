@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import type {
   GetSecretsResponse,
   SetSecretsResponse,
@@ -231,24 +232,66 @@ export async function runDownload(
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
+/** Currently running child process — exported so the SIGINT handler can kill it. */
+let activeRunChild: ChildProcess | null = null;
+
+export function killActiveRunChild(): void {
+  if (activeRunChild?.pid) {
+    try {
+      process.kill(-activeRunChild.pid, "SIGKILL");
+    } catch {
+      try { activeRunChild.kill("SIGKILL"); } catch { /* already gone */ }
+    }
+    activeRunChild = null;
+  }
+}
+
 export async function runRun(
   project: string,
   environment: string,
   cmd: string[]
 ) {
   if (cmd.length === 0) {
-    error("No command provided. Usage: kfl run --project <p> --env <e> -- <command>");
+    error("No command provided. Usage: kfl run --project <p> --env <e> -- <command> [args...]");
     process.exit(1);
   }
 
+  // ── Fetch secrets and merge into env ─────────────────────────────────────
   const data = await api.get<GetSecretsResponse>(secretsUrl(project, environment));
   const env = { ...process.env, ...data.secrets };
 
-  const result = spawnSync(cmd[0], cmd.slice(1), {
+  // ── Spawn via shell so $VAR references in args expand against injected env ─
+  // shell: true joins cmd into a string and passes it to sh -c, which means
+  // $VAR references are expanded by the subprocess (after secrets are set),
+  // pipes/redirects/&& work as expected, and the user's shell pre-expansion
+  // of unquoted $VAR is no longer a concern.
+  const child = spawn(cmd[0], cmd.slice(1), {
     env,
     stdio: "inherit",
-    shell: false,
+    shell: true,
+    // detached: new process group so we can kill the whole tree on SIGINT
+    detached: true,
   });
 
-  process.exit(result.status ?? 0);
+  activeRunChild = child;
+
+  await new Promise<void>((resolve) => {
+    child.on("close", (code, signal) => {
+      activeRunChild = null;
+      if (signal) {
+        // Mirror the signal-based exit code convention (128 + signal number)
+        const sigNum: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGKILL: 9 };
+        process.exit(128 + (sigNum[signal] ?? 1));
+      }
+      process.exit(code ?? 0);
+      resolve();
+    });
+
+    child.on("error", (err) => {
+      activeRunChild = null;
+      error(`Failed to run command: ${err.message}`);
+      process.exit(1);
+      resolve();
+    });
+  });
 }

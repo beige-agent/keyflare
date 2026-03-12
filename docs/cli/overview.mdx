@@ -185,11 +185,16 @@ kfl download --project <name> --env <env> [options]
 
 ### `kfl run`
 
-Run a command with secrets injected as environment variables.
+Run a command with secrets injected as environment variables. The command is executed via the shell, so `$VAR` references, pipes, redirects, and `&&` chains all work as expected.
 
 ```bash
 kfl run --project <name> --env <env> -- <command> [args...]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--project <name>` | Project name (or set `KEYFLARE_PROJECT`) |
+| `--env <name>` | Environment name (or set `KEYFLARE_ENV`) |
 
 Examples:
 
@@ -197,6 +202,10 @@ Examples:
 kfl run --project my-api --env production -- npm run build
 kfl run --project my-api --env development -- npm run dev
 kfl run -- npm run dev  # Uses defaults from config
+
+# $VAR references work — expanded by the subprocess after secrets are injected
+kfl run --project my-api --env Prod -- echo $MYSECRET
+kfl run --project my-api --env Prod -- echo $DATABASE_URL | cut -d@ -f2
 ```
 
 ---
