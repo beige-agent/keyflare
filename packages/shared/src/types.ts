@@ -35,6 +35,10 @@ export interface KeyScope {
 
 // ─── Bootstrap ───
 
+export interface BootstrapStatusResponse {
+  initialized: boolean;
+}
+
 export interface BootstrapResponse {
   key: string;
   prefix: string;
