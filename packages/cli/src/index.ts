@@ -23,6 +23,7 @@ import {
   runUpload,
   runDownload,
   runRun,
+  killActiveRunChild,
 } from "./commands/secrets.js";
 import {
   runKeysList,
@@ -230,7 +231,13 @@ program
 // ─── kfl run ─────────────────────────────────────────────────
 program
   .command("run")
-  .description("Run a command with secrets injected as environment variables")
+  .description(
+    "Run a command with secrets injected as environment variables.\n\n" +
+    "  The command is executed via the shell, so $VAR references, pipes,\n" +
+    "  redirects, and && chains all work as expected.\n\n" +
+    "  Example:\n" +
+    "    kfl run --project my-api --env Prod -- echo $MYSECRET"
+  )
   .requiredOption("--project <name>", "Project name", resolveProject())
   .requiredOption("--env <name>", "Environment name", resolveEnvironment())
   .allowUnknownOption()
@@ -348,6 +355,7 @@ function handleError(err: unknown) {
 // active child processes directly.
 process.on("SIGINT", () => {
   killActiveChild();
+  killActiveRunChild();
   // Show cursor (ora hides it)
   process.stderr.write("\x1B[?25h");
   process.exit(130);
