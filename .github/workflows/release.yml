@@ -68,7 +68,16 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          BRANCH=$(git branch -r --contains HEAD | grep -o 'origin/[^ ]*' | head -1 | sed 's|origin/||')
+          # Tags don't carry branch info in a detached-HEAD checkout, so we
+          # look for a remote branch that contains this tag commit and fall
+          # back to "main" if none is found (the common case for trunk-based
+          # release flows).
+          BRANCH=$(git branch -r --contains HEAD 2>/dev/null \
+            | grep -v 'HEAD' \
+            | grep -o 'origin/[^ ]*' \
+            | head -1 \
+            | sed 's|origin/||')
+          BRANCH=${BRANCH:-main}
           echo "Detected branch: $BRANCH"
           git fetch origin "$BRANCH"
           git checkout "$BRANCH"
