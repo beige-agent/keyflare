@@ -130,13 +130,9 @@ export async function runSecretsDelete(
   project: string,
   environment: string
 ) {
-  const data = await api.patch<PatchSecretsResponse>(secretsUrl(project, environment), {
+  await api.patch<PatchSecretsResponse>(secretsUrl(project, environment), {
     delete: [key],
   });
-  if (data.deleted === 0) {
-    error(`Secret "${key}" not found in ${project}/${environment}`);
-    process.exit(4);
-  }
   success(`Deleted secret "${key}" from ${project}/${environment}`);
 }
 
