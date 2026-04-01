@@ -83,5 +83,3 @@ export async function handleBootstrap(
     user_email: userEmail,
   });
 }
-
-
